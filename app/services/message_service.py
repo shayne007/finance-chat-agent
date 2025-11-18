@@ -9,6 +9,8 @@ from app.models.schemas import ChatRequest, ChatResponse, Message as MessageSche
 from app.services.conversation_service import ConversationService
 from app.models.schemas import ConversationCreate
 from app.agents.finance_agent import FinanceAgent
+from app.tasks.message_tasks import process_message_task
+import json
 
 
 class MessageService:
@@ -54,6 +56,33 @@ class MessageService:
         self.db.refresh(ai_msg)
 
         return ChatResponse(message_id=ai_msg.id, content=ai_msg.content, conversation_id=ai_msg.conversation_id, created_at=ai_msg.created_at)
+
+    async def queue_message(self, user_id: UUID, chat_request: ChatRequest):
+        conversation_id = chat_request.conversation_id
+        if not conversation_id:
+            conv_service = ConversationService(self.db)
+            conv = await conv_service.create_conversation(user_id, ConversationCreate(title="New Conversation"))
+            conversation_id = conv.id
+
+        conv = (
+            self.db.query(Conversation)
+            .filter(Conversation.id == str(conversation_id), Conversation.user_id == str(user_id))
+            .first()
+        )
+        if not conv:
+            raise ValueError("Conversation not found or not owned by user")
+
+        user_msg = Message(conversation_id=str(conversation_id), role="user", content=chat_request.message, meta=json.dumps({"status": "queued"}))
+        self.db.add(user_msg)
+        self.db.commit()
+        self.db.refresh(user_msg)
+
+        task = process_message_task.delay(user_msg.id, str(user_id))
+        user_msg.meta = json.dumps({"status": "queued", "task_id": task.id})
+        self.db.add(user_msg)
+        self.db.commit()
+
+        return {"message_id": user_msg.id, "task_id": task.id, "status": "queued"}
 
     async def get_messages(self, conversation_id: UUID, user_id: UUID, skip: int, limit: int) -> List[MessageSchema]:
         conv = (

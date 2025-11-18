@@ -59,3 +59,13 @@ class ChatResponse(BaseModel):
     content: str
     conversation_id: UUID
     created_at: datetime
+
+
+class ChatQueuedResponse(BaseModel):
+    message_id: UUID
+    task_id: str
+    status: str
+    response_message_id: Optional[UUID] = None
+    content: Optional[str] = None
+    conversation_id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
