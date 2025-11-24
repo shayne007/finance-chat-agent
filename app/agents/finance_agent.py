@@ -1,18 +1,34 @@
-from typing import List, Dict, Optional
+import os
+from typing import List, Dict
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
+
+from app.agents.jira_agent import JiraAgent
 
 
 class FinanceAgent:
     def __init__(self):
-        pass
+        self.openai_key = os.getenv("OPENAI_API_KEY")
+        self.client = OpenAI(api_key=self.openai_key) if (OpenAI and self.openai_key) else None
+        self.jira = JiraAgent()
 
-    async def run(self, user_input: str, conversation_history: Optional[List[Dict]] = None) -> str:
-        text = user_input.lower()
-        if any(k in text for k in ["budget", "save", "saving", "savings"]):
-            return "Consider allocating 20% of income to savings, 50% to needs, 30% to wants (50/30/20 rule)."
-        if any(k in text for k in ["invest", "investment", "portfolio"]):
-            return "Diversify across index funds, bonds, and a small allocation to alternatives based on your risk tolerance."
-        if any(k in text for k in ["retire", "retirement", "401k", "ira"]):
-            return "Max out tax-advantaged accounts like 401(k) and IRA; target a savings rate aligned to your retirement timeline."
-        if any(k in text for k in ["debt", "loan", "credit"]):
-            return "Use the avalanche method: pay off highest-interest debt first while making minimums on others."
-        return "I can help with budgeting, investing, retirement planning, and debt strategies. What is your goal?"
+    async def run(self, message: str, history: List[Dict[str, str]]) -> str:
+        intent = self.jira.classify_intent(message)
+        if intent == "create":
+            return self.jira.create_ticket(message)
+        if intent == "assess":
+            return self.jira.assess_ticket(message)
+        if intent == "analyze":
+            data = self.jira.analyze_requirement(message)
+            return f"Structured requirement\n{data}"
+        if not self.client:
+            return "I can help with finance chat. Jira intents supported: create, assess, analyze."
+        msgs = []
+        for m in history:
+            msgs.append({"role": m.get("role", "user"), "content": m.get("content", "")})
+        msgs.append({"role": "user", "content": message})
+        r = self.client.chat.completions.create(model="gpt-4o-mini", messages=msgs, temperature=0.7)
+        return r.choices[0].message.content
