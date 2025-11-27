@@ -16,15 +16,12 @@ def run():
     UUID(conv_id)
 
     r = client.post(
-        "/api/v1/messages/",
-        params={"user_id": user_id},
-        json={"message": "How should I budget?", "conversation_id": conv_id},
+        "/api/v1/agent/invoke",
+        json={"user_input": "Analyze this requirement: Build a budget dashboard"},
     )
     assert r.status_code == 200, r.text
     resp = r.json()
-    UUID(resp["message_id"])
-    print("Conversation:", conv_id)
-    print("Suggestion:", resp["content"])
+    print("Agent Output:", resp.get("output"))
 
 
 if __name__ == "__main__":

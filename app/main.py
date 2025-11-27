@@ -6,6 +6,7 @@ from app.core.database import Base, engine
 from app.core.config import settings
 from app.api.routes.conversations import router as conversations_router
 from app.api.routes.messages import router as messages_router
+from app.api.routes.jira_agent import router as jira_agent_router
 
 
 @asynccontextmanager
@@ -26,6 +27,7 @@ app.add_middleware(
 
 app.include_router(conversations_router, prefix="/api/v1/conversations", tags=["conversations"])
 app.include_router(messages_router, prefix="/api/v1/messages", tags=["messages"])
+app.include_router(jira_agent_router, prefix="/api/v1", tags=["jira-agent"])
 
 
 @app.get("/health")

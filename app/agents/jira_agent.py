@@ -3,11 +3,8 @@ import json
 import re
 from typing import Dict, Any, Optional
 import requests
-
-try:
-    from openai import OpenAI
-except Exception:
-    OpenAI = None
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
 
 
 class JiraAPIClient:
@@ -53,7 +50,8 @@ class JiraAPIClient:
 class JiraAgent:
     def __init__(self):
         self.openai_key = os.getenv("OPENAI_API_KEY")
-        self.client = OpenAI(api_key=self.openai_key) if (OpenAI and self.openai_key) else None
+        self.model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.llm = ChatOpenAI(model=self.model_name, temperature=0) if self.openai_key else None
         self.jira = JiraAPIClient(
             domain=os.getenv("JIRA_DOMAIN"),
             email=os.getenv("JIRA_EMAIL"),
@@ -72,15 +70,11 @@ class JiraAgent:
         return "general"
 
     def _llm_json(self, prompt: str) -> Optional[Dict[str, Any]]:
-        if not self.client:
+        if not self.llm:
             return None
-        r = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
+        r = self.llm.invoke([HumanMessage(prompt)])
         try:
-            return json.loads(r.choices[0].message.content)
+            return json.loads(r.content)
         except Exception:
             return None
 

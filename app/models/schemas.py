@@ -69,3 +69,15 @@ class ChatQueuedResponse(BaseModel):
     content: Optional[str] = None
     conversation_id: Optional[UUID] = None
     created_at: Optional[datetime] = None
+
+
+class AgentRequest(BaseModel):
+    user_input: str
+    context: Optional[Dict[str, Any]] = None
+
+
+class AgentResponse(BaseModel):
+    output: str
+    ticket_id: Optional[str] = None
+    structured_data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
