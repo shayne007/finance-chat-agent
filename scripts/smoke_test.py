@@ -2,7 +2,11 @@ import os, sys
 sys.path.append(os.path.abspath("."))
 from fastapi.testclient import TestClient
 from uuid import UUID
+from time import sleep
 from app.main import app
+
+# Ensure no external LLM calls during smoke test
+os.environ.pop("OPENAI_API_KEY", None)
 
 
 def run():
@@ -16,12 +20,21 @@ def run():
     UUID(conv_id)
 
     r = client.post(
-        "/api/v1/agent/invoke",
-        json={"user_input": "Analyze this requirement: Build a budget dashboard"},
+        "/api/v1/messages/chat-request",
+        params={"user_id": user_id},
+        json={"message": "Analyze this requirement: Build a budget dashboard", "stream": False, "conversation_id": conv_id},
     )
     assert r.status_code == 200, r.text
-    resp = r.json()
-    print("Agent Output:", resp.get("output"))
+    queued = r.json()
+    mid = queued["message_id"]
+    for _ in range(20):
+        s = client.get(f"/api/v1/messages/chat-request/{mid}", params={"user_id": user_id})
+        assert s.status_code == 200, s.text
+        data = s.json()
+        if data.get("status") == "completed":
+            print("Agent Output:", data.get("content"))
+            break
+        sleep(0.2)
 
 
 if __name__ == "__main__":

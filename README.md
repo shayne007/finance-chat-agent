@@ -63,7 +63,7 @@ Replace `<USER_ID>` with your UUID (for local testing a placeholder works): `111
 
 ```bash
 curl -sS -X POST \
-  'http://127.0.0.1:8000/api/v1/messages/chat-request?user_id=<USER_ID>' \
+  'http://127.0.0.1:8000/api/v1/messages/chat-request?user_id=11111111-1111-1111-1111-111111111111' \
   -H 'Content-Type: application/json' \
   -d '{"message":"Tell me how to invest."}'
 ```
@@ -86,7 +86,7 @@ Example response:
 
 ```bash
 curl -sS \
-  'http://127.0.0.1:8000/api/v1/messages/chat-request/<MESSAGE_ID>?user_id=<USER_ID>'
+  'http://127.0.0.1:8000/api/v1/messages/chat-request/2d467efb-d304-4805-a3fc-d07eb7a485e9?user_id=11111111-1111-1111-1111-111111111111'
 ```
 
 When processing:

@@ -9,7 +9,6 @@ from app.services.message_service import MessageService
 from app.models.conversation import Message, Conversation
 from app.core.config import settings
 import json
-import asyncio
 
 
 router = APIRouter()
