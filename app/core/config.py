@@ -20,5 +20,15 @@ class Settings:
     JIRA_API_TOKEN: str = os.getenv("JIRA_API_TOKEN", "")
     JIRA_PROJECT_KEY: str = os.getenv("JIRA_PROJECT_KEY", "PROJ")
 
+    # RAG Agent Settings
+    RAG_EMBEDDING_MODEL: str = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small")
+    RAG_LLM_MODEL: str = os.getenv("RAG_LLM_MODEL", "gpt-4o-mini")
+    RAG_CHUNK_SIZE: int = int(os.getenv("RAG_CHUNK_SIZE", "1000"))
+    RAG_CHUNK_OVERLAP: int = int(os.getenv("RAG_CHUNK_OVERLAP", "200"))
+    RAG_SEARCH_K: int = int(os.getenv("RAG_SEARCH_K", "5"))
+    # Optional: For PGVector support (PostgreSQL vector store)
+    RAG_VECTOR_DB_URL: str = os.getenv("RAG_VECTOR_DB_URL", "")
+    RAG_VECTOR_COLLECTION: str = os.getenv("RAG_VECTOR_COLLECTION", "kb_embeddings")
+
 
 settings = Settings()

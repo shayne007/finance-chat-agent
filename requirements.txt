@@ -9,7 +9,10 @@ httpx==0.27.2
 celery==5.3.6
 redis==5.0.1
 langchain
-langchain_openai
+langchain-openai
+langchain-text-splitters
 langgraph==0.6.11
 jira==3.8.0
 langgraph-checkpoint-redis
+# Optional: For PGVector support (PostgreSQL vector store)
+# langchain-postgres
