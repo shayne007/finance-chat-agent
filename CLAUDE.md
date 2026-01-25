@@ -1,22 +1,35 @@
-@.claude/constitution.md
+# CLAUDE.md
 
-# [Finance Chat Agent] Python AI Agent Collaboration Guide
-
-You are a Senior Python Software Engineer specializing in FastAPI, Celery, and Generative AI (LangChain/LangGraph). Your task is to assist me in developing this project with high-quality, maintainable, and robust code.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
 
-## 1. Tech Stack & Environment
+## Project Constitution
 
+**[CRITICAL]** This project has a governing constitution at `.claude/constitution.md` that defines unshakeable development principles. All development must follow:
+- **Article 1**: Simplicity First (YAGNI, lightweight dependencies)
+- **Article 2**: Test-First Imperative (TDD cycle, parameterized tests)
+- **Article 3**: Clarity and Explicitness (type hints, explicit error handling)
+- **Article 4**: Single Responsibility (cohesive modules, clear interfaces)
+
+The constitution holds the highest priority, overriding any other instructions.
+
+---
+
+## Role & Tech Stack
+
+You are a Senior Python Software Engineer specializing in FastAPI, Celery, and Generative AI (LangChain/LangGraph).
+
+**Tech Stack:**
 - **Language**: Python (>= 3.10)
 - **Web Framework**: FastAPI (Async)
 - **Task Queue**: Celery (with Redis)
 - **Database/ORM**: SQLAlchemy (Sync/Async), Pydantic for validation
 - **AI/LLM**: LangChain, LangGraph, OpenAI
-- **Build/Test/Quality**:
-  - **Dependency Management**: `pip` with `requirements.txt`
-  - **Testing**: `pytest` (Recommended)
-  - **Linting/Formatting**: `ruff` (Recommended) or `black` + `isort`
+- **Quality Tools**:
+  - **Dependencies**: `pip` with `requirements.txt`
+  - **Testing**: `pytest` with parameterized tests
+  - **Linting**: `ruff` (lint) + `ruff format` (format)
 
 ---
 
@@ -87,11 +100,43 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/messages/chat-request?user_id=1111111
 curl 'http://127.0.0.1:8000/api/v1/messages/chat-request/<MESSAGE_ID>?user_id=11111111-1111-1111-1111-111111111111'
 ```
 
-### Dependencies
+### Development Commands
 
 ```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Lint code
+ruff check app/
+
+# Format code
+ruff format app/
+
+# Run tests (when tests exist)
+pytest
+
+# Run specific test file
+pytest tests/test_specific.py
+
+# Run tests with coverage
+pytest --cov=app
 ```
+
+### Environment Variables
+
+**Required for basic functionality:**
+- `OPENAI_API_KEY` - OpenAI API key for LLM operations
+
+**Required for Jira integration:**
+- `JIRA_DOMAIN` - Jira instance domain (e.g., `company.atlassian.net`)
+- `JIRA_EMAIL` - Jira account email
+- `JIRA_API_TOKEN` - Jira API token
+- `JIRA_PROJECT_KEY` - Project key for ticket creation (default: `PROJ`)
+
+**Optional:**
+- `DATABASE_URL` - Database connection string (default: `sqlite:///./chat.db`)
+- `REDIS_CHECKPOINT_URL` - Redis URL for LangGraph checkpointing
+- `RAG_*` - RAG agent settings (embedding model, chunk size, etc.)
 
 ---
 
@@ -124,6 +169,29 @@ Frontend → FastAPI API → Celery Task Queue → Celery Worker → Agents (Fin
 
 **Stateful Conversations:** LangGraph with Redis checkpointing maintains conversation state across requests.
 
+### Agent Architecture Detail
+
+```
+FinanceAgent (app/agents/finance_agent.py)
+    │
+    ├── LangGraph State Machine
+    │   ├── Route to JiraAgent if intent detected
+    │   ├── Route to RAGAgent if knowledge query
+    │   └── Default to LLM response
+    │
+    └── Fallback: Simple LLM chain (if LangGraph unavailable)
+
+JiraAgent (app/agents/jira_agent.py)
+    ├── Intent classification (create/assess/analyze)
+    ├── Ticket creation via Jira API
+    └── Ticket assessment using LLM
+
+RAGAgent (app/agents/rag_agent.py)
+    ├── Document ingestion with chunking
+    ├── Semantic similarity search
+    └── In-memory vector store (PGVector optional)
+```
+
 ## 7. Project Structure
 
 ```
@@ -150,3 +218,28 @@ app/
 └── tasks/           # Celery task definitions
     └── message_tasks.py    # Background message processing
 ```
+
+## 8. Development Workflow (Per Constitution)
+
+### When Implementing New Features
+
+1. **Read First**: Use `@` to read relevant code and understand existing patterns
+2. **Write Failing Tests**: Create parameterized tests using `@pytest.mark.parametrize`
+3. **Implement**: Write code to make tests pass (Red-Green-Refactor)
+4. **Verify**: Ensure type hints, error handling, and logging are present
+
+### Concurrency Safety
+
+When working with Celery tasks or async code:
+- Explicitly identify potential race conditions
+- Use Redis locks or DB transactions for shared state
+- Document safety measures in comments
+
+### Code Review Checklist
+
+- [ ] Type hints on all public functions/methods
+- [ ] Explicit error handling (no bare `except:`)
+- [ ] Logging with context (user_id, trace_id)
+- [ ] Single responsibility per module/function
+- [ ] No unnecessary abstractions or dependencies
+- [ ] Docstrings for public APIs
