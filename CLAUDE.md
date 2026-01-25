@@ -150,6 +150,3 @@ app/
 └── tasks/           # Celery task definitions
     └── message_tasks.py    # Background message processing
 ```
-
-## 8. Personal Imports
-# @~/.claude/my-personal-python-prefs.md
