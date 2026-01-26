@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(requirements.txt)",
+      "Read(README.md)",
+      "Read(CLAUDE.md)",
+      "Read(app/**)",
+      "Read(docs/**)",
+      "Read(scripts/**)",
+      "Grep",
+      "Glob",
+      "LS",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(pip:list)",
+      "Bash(pip:freeze)",
+      "Bash(pytest:*)",
+      "Bash(uvicorn:*)",
+      "Bash(celery:*)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:python.org)",
+      "WebFetch(domain:github.com)"
+    ],
+    "deny": [
+      "Read(./.env*)",
+      "Read(~/.ssh/**)",
+      "Read(//etc/passwd)",
+      "Bash(rm:*)",
+      "Bash(git:push:*)"
+    ],
+    "ask": [
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "Bash(pip:install:*)",
+      "Bash(pip:uninstall:*)",
+      "Bash(git:add:*)",
+      "Bash(git:commit:*)"
+    ],
+    "defaultMode": "default"
+  },
+  "sandbox": {
+    "autoAllowBashIfSandboxed": false,
+    "enabled": true
+  }
+}
