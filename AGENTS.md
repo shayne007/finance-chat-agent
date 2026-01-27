@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Constitution
 
-**[CRITICAL]** This project has a governing constitution at `.claude/constitution.md` that defines unshakeable development principles. All development must follow:
+**[CRITICAL]** This project has a governing constitution at `./constitution.md` that defines unshakeable development principles. All development must follow:
 - **Article 1**: Simplicity First (YAGNI, lightweight dependencies)
 - **Article 2**: Test-First Imperative (TDD cycle, parameterized tests)
 - **Article 3**: Clarity and Explicitness (type hints, explicit error handling)
