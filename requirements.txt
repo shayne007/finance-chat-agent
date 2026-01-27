@@ -14,5 +14,8 @@ langchain-text-splitters
 langgraph==0.6.11
 jira==3.8.0
 langgraph-checkpoint-redis
+# GitHub Agent MCP dependencies
+aiohttp==3.10.11
+mcp>=0.1.0
 # Optional: For PGVector support (PostgreSQL vector store)
 # langchain-postgres
