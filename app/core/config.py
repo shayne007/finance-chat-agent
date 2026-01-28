@@ -108,3 +108,60 @@ def load_github_settings() -> GitHubSettings:
 
 
 github_settings = load_github_settings()
+
+
+class MCPSettings(BaseModel):
+    """Settings for MCP Server integration.
+
+    This class loads configuration for the Model Context Protocol server.
+    """
+
+    # Required fields
+    github_server_enabled: bool = Field(default=False, alias="ENABLED")
+
+    # Optional fields with defaults
+    github_server_port: int = Field(default=8081, alias="PORT")
+    github_max_tools: int = Field(default=50, alias="MAX_TOOLS")
+
+    @field_validator("github_server_enabled", mode="before")
+    @classmethod
+    def parse_enabled(cls, v: Union[str, bool, None]) -> bool:
+        """Parse enabled field from string to boolean."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes", "on")
+        return bool(v) if v is not None else False
+
+    @field_validator("github_server_port", mode="before")
+    @classmethod
+    def parse_port(cls, v: Union[str, int, None]) -> int:
+        """Parse port field from string to int with validation."""
+        if isinstance(v, int):
+            port = v
+        elif isinstance(v, str):
+            try:
+                port = int(v)
+            except ValueError:
+                raise ValueError(f"Must be a valid integer, got: {v}")
+        else:
+            port = 8081
+
+        if port < 1 or port > 65535:
+            raise ValueError(f"Port must be between 1 and 65535, got: {port}")
+        return port
+
+    @field_validator("github_max_tools", mode="before")
+    @classmethod
+    def parse_max_tools(cls, v: Union[str, int, None]) -> int:
+        """Parse max_tools field from string to int."""
+        if isinstance(v, int):
+            return v
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            raise ValueError(f"Must be a valid integer, got: {v}")
+
+
+mcp_settings = MCPSettings()
+
