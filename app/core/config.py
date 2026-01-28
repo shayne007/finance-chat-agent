@@ -1,5 +1,8 @@
 import os
 from dataclasses import dataclass, field
+from typing import Optional, Union
+
+from pydantic import BaseModel, field_validator, Field
 
 
 @dataclass
@@ -31,4 +34,77 @@ class Settings:
     RAG_VECTOR_COLLECTION: str = os.getenv("RAG_VECTOR_COLLECTION", "kb_embeddings")
 
 
+class GitHubSettings(BaseModel):
+    """Settings for GitHub Agent integration.
+
+    This class loads configuration from environment variables with Pydantic validation.
+    """
+
+    # Required fields
+    token: str = Field(default="")
+
+    # Optional fields with defaults
+    default_repo: Optional[str] = Field(default=None)
+    base_url: str = Field(default="https://api.github.com")
+    timeout: int = Field(default=30)
+    max_retries: int = Field(default=3)
+    enabled: bool = Field(default=False)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, v: str) -> str:
+        """Validate that the token is not empty."""
+        if not v or not v.strip():
+            raise ValueError("GITHUB_TOKEN cannot be empty")
+        return v
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def parse_enabled(cls, v: Union[str, bool, None]) -> bool:
+        """Parse enabled field from string to boolean."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes", "on")
+        return bool(v) if v is not None else False
+
+    @field_validator("timeout", "max_retries", mode="before")
+    @classmethod
+    def parse_int(cls, v: Union[str, int, None]) -> int:
+        """Parse integer fields from string to int."""
+        if isinstance(v, int):
+            return v
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            raise ValueError(f"Must be a valid integer, got: {v}")
+
+
 settings = Settings()
+
+
+def load_github_settings() -> GitHubSettings:
+    """Load GitHub settings from environment variables.
+
+    Returns:
+        GitHubSettings instance populated from environment variables.
+    """
+    field_map = {
+        "token": "GITHUB_TOKEN",
+        "default_repo": "GITHUB_DEFAULT_REPO",
+        "base_url": "GITHUB_BASE_URL",
+        "timeout": "GITHUB_TIMEOUT",
+        "max_retries": "GITHUB_MAX_RETRIES",
+        "enabled": "GITHUB_AGENT_ENABLED",
+    }
+
+    kwargs = {}
+    for field_name, env_name in field_map.items():
+        env_value = os.getenv(env_name)
+        if env_value is not None:
+            kwargs[field_name] = env_value
+
+    return GitHubSettings(**kwargs)
+
+
+github_settings = load_github_settings()
