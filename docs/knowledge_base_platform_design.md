@@ -522,9 +522,9 @@ class CodeToMarkdownTransformer:
 File: {file_path}
 
 Code:
-```{language}
+{language}
 {code_content}
-```
+
 
 Provide a JSON response with the following structure:
 {{
@@ -538,7 +538,8 @@ Provide a JSON response with the following structure:
     "imports": ["list", "of", "imports"],
     "business_logic": "Detailed explanation of the business logic implemented",
     "complexity_score": 1-10 rating of code complexity
-}}"""
+}}
+"""
         
         if self.llm_provider == "anthropic":
             response = self.client.messages.create(
