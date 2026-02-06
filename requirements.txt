@@ -20,3 +20,6 @@ aiohttp==3.10.11
 # Note: MCP (Model Context Protocol) not yet available on PyPI
 # Optional: For PGVector support (PostgreSQL vector store)
 # langchain-postgres
+
+# Repository documentation generation dependencies
+gitpython==3.1.43

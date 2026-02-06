@@ -83,6 +83,31 @@ class GitHubSettings(BaseModel):
 settings = Settings()
 
 
+def load_repository_service_settings() -> RepositoryServiceSettings:
+    """Load repository service settings from environment variables.
+
+    Returns:
+        RepositoryServiceSettings instance populated from environment variables.
+    """
+    field_map = {
+        "enabled": "REPOSITORY_SERVICE_ENABLED",
+        "output_dir": "REPOSITORY_SERVICE_OUTPUT_DIR",
+        "max_files": "REPOSITORY_SERVICE_MAX_FILES",
+        "default_branch": "REPOSITORY_SERVICE_DEFAULT_BRANCH",
+        "enable_diagrams": "REPOSITORY_SERVICE_ENABLE_DIAGRAMS",
+        "max_repo_size_mb": "REPOSITORY_SERVICE_MAX_REPO_SIZE_MB",
+        "supported_languages": "REPOSITORY_SERVICE_SUPPORTED_LANGUAGES",
+    }
+
+    kwargs = {}
+    for field_name, env_name in field_map.items():
+        env_value = os.getenv(env_name)
+        if env_value is not None:
+            kwargs[field_name] = env_value
+
+    return RepositoryServiceSettings(**kwargs)
+
+
 def load_github_settings() -> GitHubSettings:
     """Load GitHub settings from environment variables.
 
@@ -108,6 +133,7 @@ def load_github_settings() -> GitHubSettings:
 
 
 github_settings = load_github_settings()
+repository_service_settings = load_repository_service_settings()
 
 
 class MCPSettings(BaseModel):
@@ -122,6 +148,67 @@ class MCPSettings(BaseModel):
     # Optional fields with defaults
     github_server_port: int = Field(default=8081, alias="PORT")
     github_max_tools: int = Field(default=50, alias="MAX_TOOLS")
+
+
+class RepositoryServiceSettings(BaseModel):
+    """Settings for Repository Service integration.
+
+    This class loads configuration for the codebase-to-knowledge-docs functionality.
+    """
+
+    # Required fields
+    enabled: bool = Field(default=False, description="Enable repository documentation generation")
+
+    # Optional fields with defaults
+    output_dir: str = Field(default="./codebase-to-knowledge-docs", description="Output directory for generated documentation")
+    max_files: int = Field(default=100, description="Maximum number of code files to analyze")
+    default_branch: str = Field(default="main", description="Default branch to clone")
+    enable_diagrams: bool = Field(default=True, description="Enable diagram generation")
+    max_repo_size_mb: int = Field(default=100, description="Maximum repository size in MB to process")
+    supported_languages: list[str] = Field(
+        default=["python", "java", "sql", "javascript", "typescript", "go", "rust", "cpp", "c"],
+        description="List of supported programming languages"
+    )
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def parse_enabled(cls, v: Union[str, bool, None]) -> bool:
+        """Parse enabled field from string to boolean."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes", "on")
+        return bool(v) if v is not None else False
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def parse_output_dir(cls, v: Union[str, None]) -> str:
+        """Parse output directory."""
+        if isinstance(v, str):
+            return v
+        return "./codebase-to-knowledge-docs"
+
+    @field_validator("max_files", "max_repo_size_mb", mode="before")
+    @classmethod
+    def parse_int(cls, v: Union[str, int, None]) -> int:
+        """Parse integer fields from string to int."""
+        if isinstance(v, int):
+            return v
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            raise ValueError(f"Must be a valid integer, got: {v}")
+
+    @field_validator("supported_languages", mode="before")
+    @classmethod
+    def parse_languages(cls, v: Union[str, list[str], None]) -> list[str]:
+        """Parse supported languages from string or list."""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            # Split comma-separated string
+            return [lang.strip() for lang in v.split(",")]
+        return ["python", "java", "sql", "javascript", "typescript", "go", "rust", "cpp", "c"]
 
     @field_validator("github_server_enabled", mode="before")
     @classmethod

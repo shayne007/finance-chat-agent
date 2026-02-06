@@ -11,4 +11,5 @@ celery_app = Celery(
 celery_app.conf.task_always_eager = settings.CELERY_TASK_ALWAYS_EAGER
 celery_app.conf.imports = [
     "app.tasks.message_tasks",
+    "app.tasks.repository_tasks",
 ]
