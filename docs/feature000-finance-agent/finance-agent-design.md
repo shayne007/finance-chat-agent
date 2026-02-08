@@ -16,6 +16,8 @@ The Finance Chat Agent is a backend service that leverages GPT-4 to provide inte
 graph TB
     subgraph "External Systems"
         OPENAI[OpenAI GPT-4]
+        GITHUB_API[GitHub API]
+        JIRA_API[Jira API]
     end
     
     subgraph "API Layer"
@@ -23,19 +25,28 @@ graph TB
         CHAT_API[/"POST /chat<br/>Chat Request"/]
     end
     
-    subgraph "Processing Layer"
-        AGENT[Finance Agent]
-        GRAPH[LangGraph Workflow]
+    subgraph "Finance Agent Router"
+        ROUTER[Intent Classifier]
+        CHAT[Chat Agent]
+        JIRA[Jira Agent]
+        GITHUB[GitHub Agent]
+        RAG[RAG Agent]
     end
     
     subgraph "Data Layer"
         MEMORY[In-Memory/Local Storage]
     end
     
-    API --> AGENT
-    AGENT --> GRAPH
-    GRAPH --> OPENAI
-    GRAPH --> MEMORY
+    API --> ROUTER
+    ROUTER -->|chat| CHAT
+    ROUTER -->|jira| JIRA
+    ROUTER -->|github| GITHUB
+    ROUTER -->|rag| RAG
+    
+    CHAT --> OPENAI
+    JIRA --> JIRA_API
+    GITHUB --> GITHUB_API
+    RAG --> MEMORY
 ```
 
 ## 3. Core Components
@@ -94,73 +105,82 @@ async def chat_endpoint(request: ChatRequest):
 
 ### 3.2 Finance Agent Core
 
+The `FinanceAgent` acts as a central router that classifies user intent and dispatches requests to specialized sub-agents.
+
 ```python
 # app/agent/finance_agent.py
-from typing import TypedDict, Annotated, List
-import operator
-from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-
-class AgentState(TypedDict):
-    """
-    State definition for the Finance Agent workflow
-    """
-    messages: Annotated[List[BaseMessage], operator.add]
-    user_id: str
-    session_id: str
-    context: dict
+from typing import Optional, List, Dict
+from app.agents.chat_agent import ChatAgent
+from app.agents.jira_agent import JiraAgent
+from app.agents.github_agent import GitHubAgent
 
 class FinanceAgent:
-    def __init__(self):
-        self.llm = ChatOpenAI(model="gpt-4-turbo", temperature=0)
-        self.workflow = self._build_workflow()
-        
-    def _build_workflow(self):
-        """Build the simple LangGraph workflow"""
-        workflow = StateGraph(AgentState)
-        
-        # Add nodes
-        workflow.add_node("agent", self.call_model)
-        
-        # Set entry point
-        workflow.set_entry_point("agent")
-        
-        # Add edges
-        workflow.add_edge("agent", END)
-        
-        return workflow.compile()
+    """
+    Central router for the Finance Chat System.
+    """
     
-    async def call_model(self, state: AgentState):
-        """Process message with LLM"""
-        messages = state["messages"]
-        response = await self.llm.ainvoke(messages)
-        return {"messages": [response]}
+    def __init__(self):
+        # Initialize sub-agents
+        self.chat_agent = ChatAgent()
+        self.jira_agent = JiraAgent()
+        self.github_agent = GitHubAgent()
+        self.rag_agent = None  # Placeholder for RAG
+        
+    def _detect_agent_type(self, message: str) -> str:
+        """
+        Classify user intent to determine the appropriate agent.
+        """
+        message_lower = message.lower()
+        
+        # Keyword-based routing (can be upgraded to LLM-based)
+        if any(k in message_lower for k in ["github", "pr", "repo"]):
+            return "github"
+        elif any(k in message_lower for k in ["jira", "ticket", "sprint"]):
+            return "jira"
+        elif any(k in message_lower for k in ["search", "document"]):
+            return "rag"
+        
+        return "chat"
 
-    async def process_message(self, message: str, session_id: str, user_id: str, context: dict = None):
-        """Main entry point for processing messages"""
+    async def run(self, message: str, history: List[Dict], thread_id: Optional[str] = None) -> str:
+        """
+        Process the message by routing to the correct sub-agent.
+        """
+        agent_type = self._detect_agent_type(message)
         
-        initial_state = {
-            "messages": [HumanMessage(content=message)],
-            "user_id": user_id,
-            "session_id": session_id,
-            "context": context or {}
-        }
-        
-        # Execute workflow
-        result = await self.workflow.ainvoke(initial_state)
-        
-        # Extract response
-        last_message = result["messages"][-1]
-        
-        return {
-            "content": last_message.content,
-            "metadata": result.get("context")
-        }
+        if agent_type == "github":
+            return await self.github_agent.process_query(message)
+        elif agent_type == "jira":
+            return await self.jira_agent.process_query(message)
+        elif agent_type == "rag":
+             return "RAG functionality not yet implemented"
+        else:
+            # Default to ChatAgent for general conversation
+            return await self.chat_agent.process_query(message)
 ```
 
+### 3.3 Chat Agent Design
 
-### 3.3 Dynamic LLM Management
+The `ChatAgent` handles general conversational queries, financial concepts, and "chit-chat". It maintains conversation history and provides helpful, context-aware responses.
+
+```python
+# app/agents/chat_agent.py
+from langchain_openai import ChatOpenAI
+
+class ChatAgent:
+    def __init__(self):
+        self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+        
+    async def process_query(self, message: str) -> str:
+        """
+        Process general chat messages.
+        """
+        # Logic to handle chat, potentially using LangGraph for state
+        response = await self.llm.ainvoke(message)
+        return response.content
+```
+
+### 3.4 Dynamic LLM Management
 
 ```python
 # app/llm/manager.py
@@ -222,7 +242,7 @@ class OpenAIManager:
         
         return datetime.utcnow() > expires_at
     
-    def invoke(self, messages, **invoke_kwargs):
+    async def invoke(self, messages, **invoke_kwargs):
         """
         Invoke the LLM with automatic API key management
         """
@@ -231,9 +251,9 @@ class OpenAIManager:
             try:
                 api_key = self._get_valid_api_key()
                 
-                client = openai.OpenAI(api_key=api_key)
+                client = openai.AsyncOpenAI(api_key=api_key)
                 
-                response = client.chat.completions.create(
+                response = await client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
                     **{**self.kwargs, **invoke_kwargs}
@@ -255,118 +275,66 @@ class OpenAIManager:
                 raise
 ```
 
-### 3.4 Celery Task Integration
+### 3.4 Background Task Integration
+
+The system uses FastAPI's built-in `BackgroundTasks` for asynchronous processing, eliminating the need for a separate message broker like RabbitMQ or Redis. This adheres to the "Simplicity First" principle.
 
 ```python
-# app/tasks/celery_tasks.py
-from celery import Celery, Task
-from app.agent.graph import JiraAIAgent
-from app.config.settings import settings
+# app/services/message_service.py
+from fastapi import BackgroundTasks
+from app.core.database import SessionLocal
+from app.agents.finance_agent import FinanceAgent
+from app.models.conversation import Message, Conversation
 import json
 
-celery_app = Celery(
-    'jira_ai_agent',
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
-    include=['app.tasks.celery_tasks']
-)
-
-celery_app.conf.update(
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    timezone='UTC',
-    enable_utc=True,
-    task_track_started=True,
-    task_time_limit=300,  # 5 minutes
-    task_soft_time_limit=240,  # 4 minutes
-    worker_prefetch_multiplier=1,
-    task_acks_late=True,
-    broker_connection_retry_on_startup=True
-)
-
-class AgentTask(Task):
-    """Base task class with agent initialization"""
-    
-    def __init__(self):
-        super().__init__()
-        self.agent = None
-    
-    def initialize_agent(self):
-        if not self.agent:
-            from app.agent.graph import JiraAIAgent
-            from app.config.settings import settings
-            
-            self.agent = JiraAIAgent(settings)
-    
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        """Handle task failure"""
-        from app.storage.result_store import ResultStore
-        
-        result_store = ResultStore()
-        result_store.update(
-            task_id,
-            {
-                "status": "failed",
-                "error": str(exc),
-                "completed_at": datetime.utcnow().isoformat()
-            }
-        )
-
-@celery_app.task(base=AgentTask, bind=True, name="process_chat_request")
-def process_chat_request(self, task_id, session_id, message, user_id, metadata):
-    """Process chat request asynchronously"""
-    self.initialize_agent()
-    
-    # Initialize agent state
-    initial_state = {
-        "messages": [{"role": "user", "content": message}],
-        "user_id": user_id,
-        "session_id": session_id,
-        "task_id": task_id,
-        "jira_context": metadata.get("jira_context", {}),
-        "format": metadata.get("format", "markdown"),
-        "tool_outputs": [],
-        "next_step": "analyze"
-    }
-    
-    # Execute the graph
+async def process_message_background(message_id: str, user_id: str):
+    """
+    Background task to process message without Celery.
+    Manages its own DB session.
+    """
+    db = SessionLocal()
     try:
-        config = {"configurable": {"thread_id": session_id}}
+        # Retrieve message and conversation
+        user_msg = db.query(Message).filter(Message.id == message_id).first()
+        if not user_msg:
+            return
+
+        conv = db.query(Conversation).filter(
+            Conversation.id == user_msg.conversation_id, 
+            Conversation.user_id == user_id
+        ).first()
         
-        for event in self.agent.graph.stream(initial_state, config):
-            # Store intermediate results
-            if "response" in event:
-                from app.storage.result_store import ResultStore
-                
-                result_store = ResultStore()
-                result_store.update(
-                    task_id,
-                    {
-                        "status": "completed",
-                        "response": event["response"],
-                        "session_id": session_id,
-                        "completed_at": datetime.utcnow().isoformat()
-                    }
-                )
-                
-    except InterruptionRequired as e:
-        # Workflow paused for user input
-        from app.storage.result_store import ResultStore
+        if not conv:
+            return
+
+        # Initialize and run agent
+        agent = FinanceAgent()
+        reply = await agent.run(user_msg.content, [], thread_id=str(conv.id))
         
-        result_store = ResultStore()
-        result_store.update(
-            task_id,
-            {
-                "status": "paused",
-                "interruption_type": e.interruption_type,
-                "required_data": e.data,
-                "session_id": session_id,
-                "paused_at": datetime.utcnow().isoformat()
-            }
+        # Save Response
+        ai_msg = Message(
+            conversation_id=conv.id, 
+            role="assistant", 
+            content=reply, 
+            meta=json.dumps({"parent_message_id": message_id})
         )
+        db.add(ai_msg)
+        db.commit()
         
-### 3.4 Prompt Management System
+        # Update user message status
+        meta = json.loads(user_msg.meta) if user_msg.meta else {}
+        meta.update({"status": "completed", "response_message_id": ai_msg.id})
+        user_msg.meta = json.dumps(meta)
+        db.commit()
+            
+    except Exception as e:
+        db.rollback()
+        # Handle error state updates here
+    finally:
+        db.close()
+```
+
+### 3.5 Prompt Management System
 
 ```python
 # app/prompts/manager.py

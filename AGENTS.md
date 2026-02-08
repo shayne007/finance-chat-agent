@@ -18,12 +18,11 @@ The constitution holds the highest priority, overriding any other instructions.
 
 ## Role & Tech Stack
 
-You are a Senior Python Software Engineer specializing in FastAPI, Celery, and Generative AI (LangChain/LangGraph).
+You are a Senior Python Software Engineer specializing in FastAPI, and Generative AI (LangChain/LangGraph).
 
 **Tech Stack:**
 - **Language**: Python (>= 3.10)
 - **Web Framework**: FastAPI (Async)
-- **Task Queue**: Celery (with Redis)
 - **Database/ORM**: SQLAlchemy (Sync/Async), Pydantic for validation
 - **AI/LLM**: LangChain, LangGraph, OpenAI
 - **Quality Tools**:
@@ -57,7 +56,7 @@ You are a Senior Python Software Engineer specializing in FastAPI, Celery, and G
 - **[Principle] Prioritize Standard Libs**: Use standard libraries and established ecosystem packages (FastAPI, Pydantic, SQLAlchemy) before introducing new third-party dependencies.
 - **[Process] Review First**: When asked to implement a new feature, your first step must be to read relevant code (using `@`), understand existing logic, and propose an implementation plan in a list format. Wait for confirmation before coding.
 - **[Practice] Parametrized Tests**: When writing tests, prioritize **Parametrized Tests** (e.g., using `pytest.mark.parametrize`) to efficiently cover multiple scenarios.
-- **[Practice] Concurrency Safety**: When your code involves concurrency (asyncio, Celery tasks), **must** explicitly identify potential race conditions and explain the safety measures used (e.g., Redis locks, DB transactions).
+- **[Practice] Concurrency Safety**: When your code involves concurrency (asyncio tasks), **must** explicitly identify potential race conditions and explain the safety measures used (e.g., Redis locks, DB transactions).
 - **[Output] Explain Code**: After generating complex code, briefly explain the core logic and design decisions in comments or the chat.
 
 ---
@@ -133,26 +132,26 @@ pytest --cov=app
 
 ## 6. Architecture Overview
 
-This is a **FastAPI + Celery** backend for an AI finance chatbot with asynchronous message processing, Jira integration, and RAG knowledge base capabilities.
+This is a **FastAPI + Asyncio** backend for an AI finance chatbot with asynchronous message processing, Jira integration, and RAG knowledge base capabilities.
 
 ### Request Flow
 
 ```
-Frontend → FastAPI API → Celery Task Queue → Celery Worker → Agents (Finance/Jira/RAG) → DB
+Frontend → FastAPI API → Asyncio Task Queue → Asyncio Worker → Agents (Finance/Jira/RAG) → DB
                       ↓                                    ↓
                    Immediate                           Background
                    response                            processing
 ```
 
 1. User sends message via POST `/api/v1/messages/chat-request`
-2. API creates message record, queues Celery task, returns immediately with `message_id` and `task_id`
-3. Celery worker executes `process_message_task` (in `app/tasks/message_tasks.py`)
+2. API creates message record, queues Asyncio task, returns immediately with `message_id` and `task_id`
+3. Asyncio worker executes `process_message_task` (in `app/tasks/message_tasks.py`)
 4. Task runs `FinanceAgent`, stores AI response in database
 5. Frontend polls status endpoint until `status="completed"`
 
 ### Key Design Patterns
 
-**Async Task Pattern:** Heavy LLM operations run in background via Celery. API responds immediately. Client polls for results.
+**Async Task Pattern:** Heavy LLM operations run in background via Asyncio. API responds immediately. Client polls for results.
 
 **Agent Composition:** `FinanceAgent` orchestrates and delegates to specialized agents:
 - `JiraAgent` - Intent classification, ticket creation/assessment
@@ -199,15 +198,12 @@ app/
 ├── core/            # Configuration and shared utilities
 │   ├── config.py         # Settings dataclass (env-based)
 │   ├── database.py       # SQLAlchemy engine/session
-│   └── celery_app.py     # Celery configuration
 ├── models/          # SQLAlchemy ORM models
 │   ├── conversation.py   # Conversation model
 │   └── message.py        # Message model with meta JSON
 ├── services/        # Business logic layer
 │   ├── conversation_service.py  # Conversation management
 │   └── message_service.py       # Message queuing logic
-└── tasks/           # Celery task definitions
-    └── message_tasks.py    # Background message processing
 ```
 
 ## 8. Development Workflow (Per Constitution)
@@ -221,7 +217,6 @@ app/
 
 ### Concurrency Safety
 
-When working with Celery tasks or async code:
 - Explicitly identify potential race conditions
 - Use Redis locks or DB transactions for shared state
 - Document safety measures in comments
