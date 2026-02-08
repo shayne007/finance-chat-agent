@@ -585,42 +585,6 @@ class PromptMetadata(BaseModel):
   "status": "completed"
 }
 ```
-```python
-# Agent detects need for confirmation
-raise InterruptionRequired(
-    interruption_type="confirmation_required",
-    data={
-        "message": "This will update 15 related tickets. Proceed?",
-        "action": "bulk_update",
-        "affected_tickets": ["TICK-1", "TICK-2", ...],
-        "risk_level": "medium"
-    }
-)
-```
-
-**User Interaction via API:**
-```bash
-# Check paused task
-GET /chat/task_123
-
-# Response:
-{
-  "status": "paused",
-  "interruption_type": "confirmation_required",
-  "required_data": {
-    "message": "This will update 15 related tickets. Proceed?",
-    "action": "bulk_update"
-  }
-}
-
-# Send confirmation
-POST /chat/task_123/resume
-{
-  "user_input": "yes, proceed with changes",
-  "parameters": {"notify_team": true}
-}
-```
-
 ## 7. Deployment Configuration
 
 ```yaml
@@ -633,42 +597,22 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/jira_ai
-      - REDIS_URL=redis://redis:6379/0
-      - JIRA_BASE_URL=${JIRA_BASE_URL}
-      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/finance_ai
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       - postgres
-      - redis
-      - celery_worker
-  
-  celery_worker:
-    build: .
-    command: celery -A app.tasks.celery_tasks worker --loglevel=info
-    environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/jira_ai
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - postgres
-      - redis
   
   postgres:
     image: postgres:15
     environment:
-      - POSTGRES_DB=jira_ai
+      - POSTGRES_DB=finance_ai
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=pass
     volumes:
       - postgres_data:/var/lib/postgresql/data
-  
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
 
 volumes:
   postgres_data:
-  redis_data:
 ```
 
 ## 8. Security Considerations
@@ -681,31 +625,17 @@ volumes:
 ### 8.2 Data Protection
 - **PII Handling**: LLM responses sanitized for sensitive information
 - **Audit Logs**: All actions logged for compliance
-- **Access Control**: Role-based access to Jira projects
 
 ### 8.3 Rate Limiting
 ```python
 # app/middleware/rate_limit.py
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import Limiter
 from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["100/hour", "10/minute"]
 )
-
-# Apply different limits based on user tier
-def get_user_limit(user_id: str):
-    user_tier = user_service.get_tier(user_id)
-    
-    limits = {
-        "free": ["50/hour", "5/minute"],
-        "pro": ["500/hour", "50/minute"],
-        "enterprise": ["5000/hour", "500/minute"]
-    }
-    
-    return limits.get(user_tier, ["100/hour"])
 ```
 
 ## 9. Monitoring and Observability
@@ -713,21 +643,13 @@ def get_user_limit(user_id: str):
 ### 9.1 Metrics Collection
 ```python
 # app/monitoring/metrics.py
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram
 
 # Agent metrics
 AGENT_REQUESTS = Counter('agent_requests_total', 'Total agent requests')
 AGENT_REQUEST_DURATION = Histogram('agent_request_duration_seconds', 'Request duration')
 AGENT_ERRORS = Counter('agent_errors_total', 'Agent errors by type', ['error_type'])
 LLM_TOKEN_USAGE = Counter('llm_tokens_total', 'LLM token usage', ['model', 'type'])
-
-# Jira metrics
-JIRA_API_CALLS = Counter('jira_api_calls_total', 'Jira API calls', ['endpoint', 'status'])
-JIRA_LATENCY = Histogram('jira_api_latency_seconds', 'Jira API latency')
-
-# Workflow metrics
-WORKFLOW_STATES = Gauge('workflow_states', 'Current workflow states', ['state'])
-INTERRUPTIONS = Counter('workflow_interruptions_total', 'Workflow interruptions', ['type'])
 ```
 
 ### 9.2 Logging Configuration
@@ -747,7 +669,7 @@ structlog.configure(
 )
 
 # Agent-specific logging
-agent_logger = structlog.get_logger("jira_ai_agent")
+agent_logger = structlog.get_logger("finance_agent")
 agent_logger = agent_logger.bind(
     component="agent",
     version="1.0.0"
@@ -758,74 +680,37 @@ agent_logger = agent_logger.bind(
 
 ### 10.1 Horizontal Scaling
 - **Stateless API Layer**: API servers can be scaled independently
-- **Celery Workers**: Worker pools can be scaled based on queue depth
-- **Redis Cluster**: For high-volume task queuing
 - **PostgreSQL Read Replicas**: For checkpoint and state storage
-
-### 10.2 Caching Strategy
-```python
-# app/cache/redis_cache.py
-from redis import RedisCluster
-from functools import wraps
-import pickle
-
-class AgentCache:
-    def __init__(self):
-        self.redis = RedisCluster.from_url(
-            settings.REDIS_CLUSTER_URL,
-            decode_responses=False
-        )
-    
-    def cached(self, ttl=300):
-        """Decorator for caching agent responses"""
-        def decorator(func):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                # Generate cache key
-                key = self._generate_key(func.__name__, args, kwargs)
-                
-                # Try cache
-                cached = self.redis.get(key)
-                if cached:
-                    return pickle.loads(cached)
-                
-                # Execute and cache
-                result = func(*args, **kwargs)
-                self.redis.setex(key, ttl, pickle.dumps(result))
-                return result
-            return wrapper
-        return decorator
-```
 
 ## 11. Conclusion
 
-The Jira AI Agent system provides a robust, scalable solution for integrating LLM capabilities with Jira ticket management. Key strengths include:
+The Finance Agent system provides a robust solution for intelligent financial assistance. Key strengths include:
 
 1. **Flexible Architecture**: Modular design with clear separation of concerns
-2. **Human-in-the-Loop**: Support for interruptions and confirmations
-3. **Scalability**: Async processing with Celery and horizontal scaling
-4. **Maintainability**: Externalized prompts and configuration
-5. **Observability**: Comprehensive monitoring and logging
-6. **Security**: Proper API key management and data protection
+2. **Simplicity**: Direct synchronous communication for low latency
+3. **Maintainability**: Externalized prompts and configuration
+4. **Observability**: Comprehensive monitoring and logging
+5. **Security**: Proper API key management and data protection
 
-The system effectively bridges natural language interaction with structured Jira workflows, providing an intuitive interface for both technical and non-technical users while maintaining the rigor and auditability required for enterprise use.
+The system effectively leverages GPT-4 to provide accurate and helpful financial information to users.
 
 ## 12. Appendices
 
 ### 12.1 Sample Prompt Templates
 
-**intent_classification.md**
+**finance_advisor.md**
 ```markdown
 ---
-name: intent_classification
-version: 1.1
+name: finance_advisor
+version: 1.0
 variables:
   - user_message
   - history
 ---
 
 ## System:
-You are a Jira assistant that classifies user intents. Analyze the message and determine the intent.
+You are a helpful and knowledgeable financial assistant. 
+Your goal is to explain financial concepts clearly and provide data-driven insights.
 
 ## User:
 Message: {{ user_message }}
@@ -836,48 +721,9 @@ Previous conversation:
 {% endfor %}
 
 ## Instructions:
-Classify the intent into one of:
-- create_ticket: User wants to create a new Jira ticket
-- assess_ticket: User wants to analyze or get info about a ticket
-- analyze_requirements: User wants requirements analyzed
-- search_tickets: User wants to search for tickets
-- update_ticket: User wants to update an existing ticket
-- unknown: Cannot determine intent
-
-Respond with JSON only: {"intent": "<value>", "confidence": 0.95, "entities": {}}
-```
-
-**ticket_creation.md**
-```markdown
----
-name: ticket_creation
-version: 1.2
-variables:
-  - requirement
-  - context
----
-
-## System:
-You are a Jira ticket creation assistant. Extract structured data from natural language requirements.
-
-## User:
-Requirement: {{ requirement }}
-
-Project Context: {{ context }}
-
-## Instructions:
-Extract the following fields:
-1. Project key (if mentioned)
-2. Issue type (Bug, Task, Story, Epic, Improvement)
-3. Summary (concise, max 255 chars)
-4. Detailed description
-5. Priority (Highest, High, Medium, Low, Lowest)
-6. Assignee (if specified)
-7. Labels (relevant tags)
-
-If any information is missing, note what needs to be clarified.
-
-Respond with JSON only.
+1. Be concise and clear.
+2. If the user asks for advice, provide general principles and a disclaimer.
+3. Use data when available.
 ```
 
 ### 12.2 Error Handling Strategy
@@ -888,40 +734,7 @@ class AgentError(Exception):
     """Base exception for agent errors"""
     pass
 
-class InterruptionRequired(AgentError):
-    """Raised when workflow needs user input"""
-    def __init__(self, interruption_type, data=None):
-        self.interruption_type = interruption_type
-        self.data = data or {}
-        super().__init__(f"Interruption required: {interruption_type}")
-
 class LLMError(AgentError):
     """LLM-related errors"""
     pass
-
-class JiraAPIError(AgentError):
-    """Jira API errors"""
-    pass
-
-# Global error handler
-@app.exception_handler(AgentError)
-async def agent_error_handler(request, exc):
-    if isinstance(exc, InterruptionRequired):
-        return JSONResponse(
-            status_code=202,  # Accepted, but needs input
-            content={
-                "error": "interruption_required",
-                "type": exc.interruption_type,
-                "data": exc.data
-            }
-        )
-    else:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "agent_error",
-                "message": str(exc),
-                "type": exc.__class__.__name__
-            }
-        )
 ```
