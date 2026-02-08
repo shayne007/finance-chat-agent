@@ -32,6 +32,7 @@ class FinanceAgent:
 
     def __init__(
         self,
+        chat_agent: Optional[ChatAgent] = None,
         jira_agent: Optional[JiraAgent] = None,
         rag_agent: Optional = None,
         github_agent: Optional[GitHubAgent] = None,
@@ -39,6 +40,7 @@ class FinanceAgent:
         """Initialize the Finance Agent.
 
         Args:
+            chat_agent: Optional Chat Agent instance.
             jira_agent: Optional Jira Agent instance.
             rag_agent: Optional RAG Agent instance.
             github_agent: Optional GitHub Agent instance.
@@ -49,6 +51,7 @@ class FinanceAgent:
         self.jira = jira_agent if jira_agent else JiraAgent()
         self.github_agent = github_agent
         self.rag_agent = rag_agent
+        self.chat_agent = chat_agent if chat_agent else ChatAgent()
         self.app = None
 
         logger.info(f"FinanceAgent initialized with GitHub agent: {github_agent is not None}")
@@ -60,7 +63,7 @@ class FinanceAgent:
             message: The user's message.
 
         Returns:
-            The agent type ("github", "jira", "rag", "unknown").
+            The agent type ("github", "jira", "rag", "chat").
         """
         message_lower = message.lower()
 
@@ -78,8 +81,8 @@ class FinanceAgent:
         if any(keyword in message_lower for keyword in rag_keywords):
             return "rag"
 
-        # Default to Jira for backward compatibility
-        return "jira"
+        # Default to chat for backward compatibility
+        return "chat"
 
     async def run(
         self, message: str, history: List[Dict[str, str]] = [], thread_id: Optional[str] = None
@@ -116,16 +119,7 @@ class FinanceAgent:
         elif agent_type == "rag" and self.rag_agent:
             return f"Searching for information about: {message}"
         elif self.llm:
-            # Fallback to Jira for queries without specific routing
-            intent = self.jira.classify_intent(message)
-            if intent == "create":
-                return self.jira.create_ticket(message)
-            elif intent == "assess":
-                data = self.jira.analyze_requirement(message)
-                return f"Structured requirement\n{data}"
-            elif intent == "analyze":
-                return self.jira.analyze_requirement(message)
-            else:
-                return self.jira.create_ticket(message)
+            # Fallback to chat for queries without specific routing
+            return await self.chat_agent.process_query(message)
         else:
             return "I don't have the necessary tools to help with that request."

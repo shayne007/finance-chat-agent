@@ -1,58 +1,41 @@
-# Jira AI Agent: System Design Document
+# Finance Chat Agent: System Design Document
 
 ## 1. Overview
 
 ### 1.1 System Purpose
-The Jira AI Agent is a sophisticated backend service that leverages GPT-4.1 to provide intelligent Jira ticket management capabilities. It combines natural language processing with Jira API integration to automate ticket creation, analysis, and management workflows.
+The Finance Chat Agent is a backend service that leverages GPT-4 to provide intelligent chat capabilities. It combines natural language processing with financial tools to assist users with their queries.
 
 ### 1.2 Key Architecture Decisions
-- **Event-Driven Async Architecture**: Using Celery for distributed task processing
-- **Stateful Agent Workflows**: LangGraph with persistent checkpoints for long-running conversations
-- **Dynamic Model Management**: Runtime API key validation and refresh
-- **Human-in-the-Loop**: Interruptible workflows with resume capability
-- **Prompt Management**: Externalized prompt templates for maintainability
+- **Synchronous Architecture**: Direct API response model using FastAPI
+- **Stateful Agent Workflows**: LangGraph for managing conversation state
+- **Simple Tech Stack**: Python, FastAPI, LangChain/LangGraph, OpenAI
 
 ## 2. System Architecture
 
 ```mermaid
 graph TB
     subgraph "External Systems"
-        JIRA[Jira Cloud API]
-        OPENAI[OpenAI GPT-4.1]
-        CONFIG[Config Center/DB]
+        OPENAI[OpenAI GPT-4]
     end
     
     subgraph "API Layer"
         API[FastAPI Application]
-        CHAT_API[/"POST /chat<br/>Async Request"/]
-        QUERY_API[/"GET /chat/{task_id}<br/>Query Result"/]
-        RESUME_API[/"POST /chat/{task_id}/resume<br/>Resume Workflow"/]
+        CHAT_API[/"POST /chat<br/>Chat Request"/]
     end
     
     subgraph "Processing Layer"
-        CELERY[Celery Workers]
-        TASK_QUEUE[Redis Task Queue]
-        AGENT[Jira AI Agent]
+        AGENT[Finance Agent]
         GRAPH[LangGraph Workflow]
     end
     
     subgraph "Data Layer"
-        POSTGRES[(PostgreSQL)]
-        CHECKPOINTS[Graph Checkpoints]
-        PROMPTS[Prompt Templates]
-        HISTORY[Conversation History]
+        MEMORY[In-Memory/Local Storage]
     end
     
-    API --> TASK_QUEUE
-    TASK_QUEUE --> CELERY
-    CELERY --> AGENT
+    API --> AGENT
     AGENT --> GRAPH
     GRAPH --> OPENAI
-    GRAPH --> JIRA
-    AGENT --> CONFIG
-    POSTGRES --> CHECKPOINTS
-    POSTGRES --> HISTORY
-    POSTGRES --> PROMPTS
+    GRAPH --> MEMORY
 ```
 
 ## 3. Core Components
@@ -61,9 +44,9 @@ graph TB
 
 ```python
 # app/api/endpoints.py
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 import uuid
 from datetime import datetime
 
@@ -75,294 +58,107 @@ class ChatRequest(BaseModel):
     user_id: str
     metadata: Optional[dict] = None
 
-class ResumeRequest(BaseModel):
-    user_input: str
-    parameters: Optional[dict] = None
+class ChatResponse(BaseModel):
+    response: str
+    session_id: str
+    metadata: Optional[Dict[str, Any]] = None
 
-@router.post("/chat")
-async def create_chat_session(
-    request: ChatRequest,
-    background_tasks: BackgroundTasks
-):
+@router.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
     """
-    Async endpoint to submit chat requests
+    Synchronous endpoint to handle chat requests
     """
-    task_id = str(uuid.uuid4())
     session_id = request.session_id or str(uuid.uuid4())
     
-    # Queue the task for processing
-    background_tasks.add_task(
-        process_chat_request,
-        task_id=task_id,
-        session_id=session_id,
-        message=request.message,
-        user_id=request.user_id,
-        metadata=request.metadata
-    )
-    
-    return {
-        "task_id": task_id,
-        "session_id": session_id,
-        "status": "processing",
-        "created_at": datetime.utcnow().isoformat()
-    }
-
-@router.get("/chat/{task_id}")
-async def get_chat_result(task_id: str):
-    """
-    Query the result of an async chat request
-    """
-    result = await result_store.get(task_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    return result
-
-@router.post("/chat/{task_id}/resume")
-async def resume_workflow(task_id: str, resume_request: ResumeRequest):
-    """
-    Resume a paused workflow with user input
-    """
-    # Validate task exists and is in paused state
-    task_state = await checkpoint_store.get_state(task_id)
-    if not task_state or task_state.get("status") != "paused":
-        raise HTTPException(
-            status_code=400,
-            detail="Task is not in a resumable state"
+    try:
+        # Initialize agent
+        agent = FinanceAgent()
+        
+        # Process message directly
+        result = await agent.process_message(
+            message=request.message,
+            session_id=session_id,
+            user_id=request.user_id,
+            context=request.metadata
         )
-    
-    # Send resume signal to workflow
-    background_tasks.add_task(
-        resume_agent_workflow,
-        task_id=task_id,
-        user_input=resume_request.user_input,
-        parameters=resume_request.parameters
-    )
-    
-    return {"status": "resumed", "task_id": task_id}
+        
+        return ChatResponse(
+            response=result["content"],
+            session_id=session_id,
+            metadata=result.get("metadata")
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 ```
 
-### 3.2 AI Agent Core with LangGraph
+### 3.2 Finance Agent Core
 
 ```python
-# app/agent/graph.py
-from typing import TypedDict, Annotated, Literal
+# app/agent/finance_agent.py
+from typing import TypedDict, Annotated, List
 import operator
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint import PostgresSaver
-from langgraph.prebuilt import ToolExecutor
-import json
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
 class AgentState(TypedDict):
     """
-    State definition for the Jira AI Agent workflow
+    State definition for the Finance Agent workflow
     """
-    messages: Annotated[list, operator.add]
+    messages: Annotated[List[BaseMessage], operator.add]
     user_id: str
     session_id: str
-    task_id: str
-    jira_context: dict  # Contains ticket info, project context
-    llm_response: dict
-    next_step: Literal["analyze", "create", "assess", "confirm", "complete"]
-    requires_confirmation: bool
-    confirmation_data: dict
-    current_tool: str
-    tool_outputs: list
+    context: dict
 
-class JiraAIAgent:
-    def __init__(self, config):
-        self.config = config
-        self.llm = self._initialize_llm()
-        self.tools = self._initialize_tools()
-        self.graph = self._build_graph()
+class FinanceAgent:
+    def __init__(self):
+        self.llm = ChatOpenAI(model="gpt-4-turbo", temperature=0)
+        self.workflow = self._build_workflow()
         
-    def _initialize_llm(self):
-        """Initialize LLM with dynamic API key management"""
-        from app.llm.manager import OpenAIManager
-        
-        return OpenAIManager(
-            model_name="gpt-4.1",
-            temperature=0.1,
-            max_tokens=2000
-        )
-    
-    def _initialize_tools(self):
-        """Initialize MCP tools for Jira operations"""
-        from app.tools.jira_tools import (
-            create_jira_ticket,
-            get_jira_ticket,
-            search_jira_tickets,
-            update_jira_ticket,
-            analyze_requirements
-        )
-        
-        return {
-            "create_jira_ticket": create_jira_ticket,
-            "get_jira_ticket": get_jira_ticket,
-            "search_jira_tickets": search_jira_tickets,
-            "update_jira_ticket": update_jira_ticket,
-            "analyze_requirements": analyze_requirements
-        }
-    
-    def _build_graph(self):
-        """Build the LangGraph workflow"""
+    def _build_workflow(self):
+        """Build the simple LangGraph workflow"""
         workflow = StateGraph(AgentState)
         
         # Add nodes
-        workflow.add_node("classify_intent", self.classify_intent)
-        workflow.add_node("plan_actions", self.plan_actions)
-        workflow.add_node("execute_tools", self.execute_tools)
-        workflow.add_node("generate_response", self.generate_response)
-        workflow.add_node("check_confirmation", self.check_confirmation)
-        workflow.add_node("handle_confirmation", self.handle_confirmation)
-        
-        # Define edges
-        workflow.add_conditional_edges(
-            "classify_intent",
-            self.route_by_intent,
-            {
-                "create_ticket": "plan_actions",
-                "assess_ticket": "plan_actions",
-                "analyze_requirements": "generate_response",
-                "unknown": "generate_response"
-            }
-        )
-        
-        workflow.add_edge("plan_actions", "execute_tools")
-        
-        workflow.add_conditional_edges(
-            "execute_tools",
-            self.check_tool_output,
-            {
-                "needs_confirmation": "check_confirmation",
-                "complete": "generate_response"
-            }
-        )
-        
-        workflow.add_conditional_edges(
-            "check_confirmation",
-            self.route_confirmation,
-            {
-                "confirmed": "execute_tools",
-                "needs_input": "handle_confirmation",
-                "cancelled": "generate_response"
-            }
-        )
-        
-        workflow.add_edge("handle_confirmation", "execute_tools")
-        workflow.add_edge("generate_response", END)
+        workflow.add_node("agent", self.call_model)
         
         # Set entry point
-        workflow.set_entry_point("classify_intent")
+        workflow.set_entry_point("agent")
         
-        # Add checkpointing
-        checkpointer = PostgresSaver.from_conn_string(
-            self.config.postgres_uri,
-            serde="json"
-        )
+        # Add edges
+        workflow.add_edge("agent", END)
         
-        return workflow.compile(checkpointer=checkpointer)
+        return workflow.compile()
     
-    def classify_intent(self, state: AgentState) -> dict:
-        """Classify user intent using LLM"""
-        prompt = self.prompt_manager.get_prompt("intent_classification")
-        messages = prompt.format_messages(
-            user_message=state["messages"][-1].content,
-            history=state["messages"][:-1]
-        )
+    async def call_model(self, state: AgentState):
+        """Process message with LLM"""
+        messages = state["messages"]
+        response = await self.llm.ainvoke(messages)
+        return {"messages": [response]}
+
+    async def process_message(self, message: str, session_id: str, user_id: str, context: dict = None):
+        """Main entry point for processing messages"""
         
-        response = self.llm.invoke(messages)
-        intent = self._parse_intent(response.content)
-        
-        return {"next_step": intent, "llm_response": response.dict()}
-    
-    def plan_actions(self, state: AgentState) -> dict:
-        """Plan the sequence of actions needed"""
-        prompt = self.prompt_manager.get_prompt("action_planning")
-        
-        if state["next_step"] == "create_ticket":
-            messages = prompt.format_messages(
-                requirement=state["messages"][-1].content,
-                context=state.get("jira_context", {})
-            )
-        else:  # assess_ticket
-            messages = prompt.format_messages(
-                ticket_number=state["jira_context"].get("ticket_number"),
-                context=state["jira_context"]
-            )
-        
-        response = self.llm.invoke(messages)
-        plan = json.loads(response.content)
-        
-        return {
-            "current_tool": plan["first_tool"],
-            "tool_sequence": plan["sequence"]
+        initial_state = {
+            "messages": [HumanMessage(content=message)],
+            "user_id": user_id,
+            "session_id": session_id,
+            "context": context or {}
         }
-    
-    def execute_tools(self, state: AgentState) -> dict:
-        """Execute the current tool in the sequence"""
-        tool_name = state["current_tool"]
-        tool = self.tools[tool_name]
         
-        # Prepare tool inputs from state
-        tool_inputs = self._prepare_tool_inputs(state, tool_name)
+        # Execute workflow
+        result = await self.workflow.ainvoke(initial_state)
         
-        # Execute tool
-        result = tool(**tool_inputs)
-        
-        # Check if confirmation is needed
-        requires_confirmation = result.get("requires_confirmation", False)
+        # Extract response
+        last_message = result["messages"][-1]
         
         return {
-            "tool_outputs": state["tool_outputs"] + [result],
-            "requires_confirmation": requires_confirmation,
-            "confirmation_data": result.get("confirmation_data", {}),
-            "current_tool": self._get_next_tool(state)
-        }
-    
-    def check_confirmation(self, state: AgentState) -> dict:
-        """Check if we need to wait for user confirmation"""
-        if state.get("requires_confirmation"):
-            # Pause the workflow and wait for user input
-            raise InterruptionRequired(
-                "waiting_for_confirmation",
-                data=state["confirmation_data"]
-            )
-        return {"next_step": "complete"}
-    
-    def handle_confirmation(self, state: AgentState) -> dict:
-        """Handle user confirmation input"""
-        # This node is only reached after resuming from interruption
-        user_input = state.get("resume_data", {}).get("user_input")
-        
-        if user_input.lower() in ["yes", "confirm", "proceed"]:
-            return {"next_step": "confirmed", "requires_confirmation": False}
-        else:
-            return {"next_step": "cancelled", "requires_confirmation": False}
-    
-    def generate_response(self, state: AgentState) -> dict:
-        """Generate final response to user"""
-        prompt = self.prompt_manager.get_prompt("response_generation")
-        
-        messages = prompt.format_messages(
-            tool_outputs=state["tool_outputs"],
-            original_query=state["messages"][-1].content,
-            context=state["jira_context"]
-        )
-        
-        response = self.llm.invoke(messages)
-        
-        # Format response based on request
-        if state.get("format") == "json":
-            output = self._format_json_response(response)
-        else:
-            output = self._format_markdown_response(response)
-        
-        return {
-            "response": output,
-            "next_step": "complete"
+            "content": last_message.content,
+            "metadata": result.get("context")
         }
 ```
+
 
 ### 3.3 Dynamic LLM Management
 
@@ -570,39 +366,7 @@ def process_chat_request(self, task_id, session_id, message, user_id, metadata):
             }
         )
         
-    except Exception as e:
-        self.on_failure(e, task_id, None, None, None)
-        raise
-
-@celery_app.task(base=AgentTask, bind=True, name="resume_agent_workflow")
-def resume_agent_workflow(self, task_id, user_input, parameters):
-    """Resume a paused workflow"""
-    self.initialize_agent()
-    
-    # Get the paused state
-    from app.storage.checkpoint_store import CheckpointStore
-    
-    checkpoint_store = CheckpointStore()
-    state = checkpoint_store.get_state(task_id)
-    
-    if not state:
-        raise ValueError(f"No paused state found for task {task_id}")
-    
-    # Add user input to state
-    state["resume_data"] = {
-        "user_input": user_input,
-        "parameters": parameters
-    }
-    
-    # Resume execution
-    config = {"configurable": {"thread_id": state["session_id"]}}
-    
-    for event in self.agent.graph.stream(state, config, as_state=True):
-        # Continue processing...
-        pass
-```
-
-### 3.5 Prompt Management System
+### 3.4 Prompt Management System
 
 ```python
 # app/prompts/manager.py
@@ -638,7 +402,7 @@ class PromptManager:
         Parse markdown file with YAML frontmatter
         Format:
         ---
-        name: intent_classification
+        name: finance_advisor
         version: 1.0
         variables:
           - user_message
@@ -648,10 +412,6 @@ class PromptManager:
         # System Prompt
         
         {{ instruction }}
-        
-        ## Examples
-        
-        {{ examples }}
         """
         lines = content.split('\n')
         
@@ -682,34 +442,15 @@ class PromptManager:
     
     def get_prompt(self, prompt_name: str, version: str = None) -> "PromptTemplate":
         """Get a prompt template by name"""
-        if prompt_name not in self.prompt_cache:
-            # Try to fetch from config center
-            self._fetch_from_config_center(prompt_name)
-        
-        prompt_data = self.prompt_cache[prompt_name]
-        
-        if version and prompt_data["metadata"].get("version") != version:
-            # Fetch specific version
-            self._fetch_from_config_center(prompt_name, version)
-            prompt_data = self.prompt_cache[f"{prompt_name}_v{version}"]
+        prompt_data = self.prompt_cache.get(prompt_name)
+        if not prompt_data:
+             raise ValueError(f"Prompt {prompt_name} not found")
         
         return PromptTemplate(
             name=prompt_name,
             template=prompt_data["template"],
             variables=prompt_data["metadata"].get("variables", [])
         )
-    
-    def _fetch_from_config_center(self, prompt_name: str, version: str = None):
-        """Fetch prompt from external config center"""
-        from app.config.service import ConfigService
-        
-        config_service = ConfigService()
-        prompt_content = config_service.get_prompt(prompt_name, version)
-        
-        if prompt_content:
-            prompt_data = self._parse_prompt_markdown(prompt_content)
-            cache_key = f"{prompt_name}_v{version}" if version else prompt_name
-            self.prompt_cache[cache_key] = prompt_data
 
 class PromptTemplate:
     """Renders prompt templates with variables"""
@@ -748,58 +489,20 @@ class PromptTemplate:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ClassifyIntent
+    [*] --> ProcessMessage
     
-    state ClassifyIntent {
-        [*] --> ExtractEntities
-        ExtractEntities --> DetermineIntent
-        DetermineIntent --> [*]
+    state ProcessMessage {
+        [*] --> LoadContext
+        LoadContext --> ConstructPrompt
+        ConstructPrompt --> CallLLM
+        CallLLM --> [*]
     }
     
-    ClassifyIntent --> PlanActions : create_ticket/assess_ticket
-    ClassifyIntent --> GenerateResponse : analyze_requirements
-    
-    state PlanActions {
-        [*] --> AnalyzeRequirements
-        AnalyzeRequirements --> GenerateToolSequence
-        GenerateToolSequence --> [*]
-    }
-    
-    PlanActions --> ExecuteTools
-    
-    state ExecuteTools {
-        [*] --> ValidateInputs
-        ValidateInputs --> CallJiraAPI
-        CallJiraAPI --> CheckResult
-        CheckResult --> [*]
-    }
-    
-    ExecuteTools --> CheckConfirmation : needs_confirmation
-    ExecuteTools --> GenerateResponse : complete
-    
-    state CheckConfirmation {
-        [*] --> EvaluateRisk
-        EvaluateRisk --> SetInterruption
-        SetInterruption --> [*]
-    }
-    
-    CheckConfirmation --> GenerateResponse : cancelled
-    CheckConfirmation --> PausedState : needs_input
-    
-    state PausedState {
-        [*] --> WaitForUser
-        WaitForUser --> ValidateInput
-        ValidateInput --> [*]
-    }
-    
-    PausedState --> HandleConfirmation
-    
-    HandleConfirmation --> ExecuteTools : confirmed
+    ProcessMessage --> GenerateResponse
     
     state GenerateResponse {
         [*] --> FormatOutput
-        FormatOutput --> JSON/Markdown
-        JSON/Markdown --> [*]
+        FormatOutput --> [*]
     }
     
     GenerateResponse --> [*]
@@ -812,54 +515,14 @@ stateDiagram-v2
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from enum import Enum
-
-class TicketPriority(str, Enum):
-    LOWEST = "Lowest"
-    LOW = "Low"
-    MEDIUM = "Medium"
-    HIGH = "High"
-    HIGHEST = "Highest"
-
-class TicketType(str, Enum):
-    BUG = "Bug"
-    TASK = "Task"
-    STORY = "Story"
-    EPIC = "Epic"
-    IMPROVEMENT = "Improvement"
-
-class JiraTicketCreate(BaseModel):
-    """Schema for creating a Jira ticket"""
-    project_key: str = Field(..., description="Jira project key")
-    summary: str = Field(..., max_length=255)
-    description: str
-    issue_type: TicketType = TicketType.TASK
-    priority: TicketPriority = TicketPriority.MEDIUM
-    assignee: Optional[str] = None
-    labels: List[str] = []
-    custom_fields: Dict[str, Any] = {}
 
 class AgentResponse(BaseModel):
     """Schema for agent response"""
-    task_id: str
     session_id: str
-    status: str  # processing, completed, paused, failed
-    response: Optional[Dict[str, Any]] = None
-    formatted_response: Optional[str] = None
+    status: str = "completed"
+    response: Dict[str, Any]
     metadata: Dict[str, Any] = {}
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-class ConversationState(BaseModel):
-    """Schema for conversation state in checkpoints"""
-    thread_id: str
-    user_id: str
-    messages: List[Dict[str, Any]]
-    context: Dict[str, Any]
-    tool_state: Dict[str, Any]
-    next_action: Optional[str] = None
-    requires_input: bool = False
-    last_updated: datetime
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class PromptMetadata(BaseModel):
     """Schema for prompt metadata"""
@@ -875,98 +538,53 @@ class PromptMetadata(BaseModel):
 
 ## 6. Use Cases with Examples
 
-### 6.1 Use Case 1: Create Jira Ticket from Natural Language
+### 6.1 Use Case 1: General Financial Question
 
 **User Input:**
 ```
-"I need a new bug ticket for the login page. The submit button disappears on mobile devices. 
-Priority is high and assign to John in the WEB project."
+"What is the difference between a stock and a bond?"
 ```
 
 **Agent Workflow:**
-1. **Intent Classification**: Identifies as ticket creation
-2. **Entity Extraction**: 
-   - Project: WEB
-   - Issue Type: Bug
-   - Summary: Login page submit button disappears on mobile
-   - Priority: High
-   - Assignee: John
-3. **Action Planning**: Plans to validate project, extract missing fields, create ticket
-4. **Tool Execution**: 
-   - Calls Jira API to validate project WEB exists
-   - Asks for missing description details if needed
-   - Creates ticket with structured data
-5. **Response Generation**: Returns ticket link and summary
+1. **Receive Message**: API receives the user's question.
+2. **Context Loading**: Agent loads previous conversation history (if any).
+3. **LLM Processing**: GPT-4 processes the question with financial context.
+4. **Response Generation**: Generates a clear, educational explanation.
 
-**Output (Markdown):**
-```markdown
-✅ **Ticket Created Successfully**
-
-**Ticket**: [WEB-1234](https://your-jira.com/browse/WEB-1234)
-**Summary**: Login page submit button disappears on mobile devices
-**Type**: Bug
-**Priority**: High
-**Assignee**: John Doe
-**Status**: To Do
-
-**Additional Details**:
-- Created in project: Web Development (WEB)
-- Labels: frontend, mobile, bug
-- Estimated fix time: 2-3 hours
-```
-
-### 6.2 Use Case 2: Ticket Assessment and Analysis
-
-**User Input:**
-```
-"Analyze ticket PROJ-567 and suggest next steps. Is it blocked?"
-```
-
-**Agent Workflow:**
-1. **Intent Classification**: Identifies as ticket assessment
-2. **Data Gathering**: 
-   - Fetches PROJ-567 from Jira
-   - Retrieves related tickets, comments, attachments
-   - Gets recent activity
-3. **Analysis**:
-   - Uses LLM to analyze ticket status, comments, relationships
-   - Identifies blockers and dependencies
-   - Suggests next actions
-4. **Response Generation**: Structured assessment report
-
-**Output (JSON):**
+**Output:**
 ```json
 {
-  "ticket": "PROJ-567",
-  "status": "In Progress",
-  "blockers": [
-    {
-      "type": "dependency",
-      "ticket": "PROJ-543",
-      "status": "In Review",
-      "description": "Waiting for API changes"
-    }
-  ],
-  "analysis": {
-    "complexity": "Medium",
-    "risk": "Low",
-    "estimated_completion": "3 days",
-    "suggested_actions": [
-      "Follow up with PROJ-543 assignee",
-      "Update documentation",
-      "Schedule QA testing"
-    ]
+  "response": {
+    "text": "A stock represents ownership in a company (equity), while a bond is a loan you give to a company or government (debt). Stocks offer higher potential returns but come with higher risk, whereas bonds provide regular interest payments and are generally safer."
   },
-  "related_tickets": ["PROJ-543", "PROJ-589"],
-  "last_updated": "2024-01-15T10:30:00Z"
+  "session_id": "uuid-1234",
+  "status": "completed"
 }
 ```
 
-### 6.3 Use Case 3: Human-in-the-Loop Confirmation
+### 6.2 Use Case 2: Investment Advice Disclaimer
 
-**Scenario**: Agent needs approval before making significant changes
+**User Input:**
+```
+"Should I buy Apple stock right now?"
+```
 
-**Workflow Pause:**
+**Agent Workflow:**
+1. **Receive Message**: API receives the specific investment question.
+2. **LLM Processing**: Model detects request for specific investment advice.
+3. **Guardrails**: System prompt instructs to provide data but avoid specific financial advice.
+4. **Response Generation**: Returns recent market data (if enabled) and a disclaimer.
+
+**Output:**
+```json
+{
+  "response": {
+    "text": "I cannot provide personalized financial advice. However, Apple (AAPL) is currently trading at $150. Analysts often look at P/E ratios and recent earnings reports to evaluate value. You should consult a qualified financial advisor before making investment decisions."
+  },
+  "session_id": "uuid-5678",
+  "status": "completed"
+}
+```
 ```python
 # Agent detects need for confirmation
 raise InterruptionRequired(

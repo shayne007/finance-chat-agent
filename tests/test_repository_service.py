@@ -214,14 +214,13 @@ class TestIntegration(unittest.TestCase):
 
             # Create test files
             (temp_path / "README.md").write_text("# Test Repository\n\nThis is a test repository.")
-            (temp_path / "main.py").write_text(
-                '''"""
+            (temp_path / "main.py").write_text("""
+"""
 A simple Python script.
 """
 
 print("Hello, World!")
-'''
-            )
+""")
             (temp_path / "schema.sql").write_text("""
 CREATE TABLE test_table (id INT PRIMARY KEY, name VARCHAR(100));
 """)

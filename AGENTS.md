@@ -68,21 +68,12 @@ You are a Senior Python Software Engineer specializing in FastAPI, Celery, and G
 
 **Async mode (production-like):**
 ```bash
-# 1. Start Redis (Docker)
 docker run -d --name redis-local -p 6379:6379 redis:7-alpine
-
-# 2. Start Celery worker (terminal 1)
-./.venv/bin/celery -A app.core.celery_app.celery_app worker --loglevel=info
-
-# 3. Start FastAPI (terminal 2)
-CELERY_TASK_ALWAYS_EAGER=0 uvicorn app.main:app --port 8000 --reload
 ```
 
 **Eager mode (development - no Redis/worker):**
 ```bash
 uvicorn app.main:app --port 8000 --reload
-# or explicitly
-CELERY_TASK_ALWAYS_EAGER=1 uvicorn app.main:app --port 8000
 ```
 
 ### Testing Endpoints
