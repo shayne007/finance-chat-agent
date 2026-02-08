@@ -29,7 +29,7 @@ You are a Senior Python Software Engineer specializing in FastAPI, Celery, and G
 - **Quality Tools**:
   - **Dependencies**: `pip` with `requirements.txt`
   - **Testing**: `pytest` with parameterized tests
-  - **Linting**: `ruff` (lint) + `ruff format` (format)
+  - **Linting**: `pylint` (lint) + `black` (format)
 
 ---
 
@@ -107,10 +107,10 @@ curl 'http://127.0.0.1:8000/api/v1/messages/chat-request/<MESSAGE_ID>?user_id=11
 pip install -r requirements.txt
 
 # Lint code
-ruff check app/
+pylint app/
 
 # Format code
-ruff format app/
+black app/
 
 # Run tests (when tests exist)
 pytest

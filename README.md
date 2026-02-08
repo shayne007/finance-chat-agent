@@ -45,16 +45,6 @@ export CELERY_BROKER_URL=redis://localhost:6379/0
 export CELERY_RESULT_BACKEND=redis://localhost:6379/0
 ```
 
-### Option B: Eager mode (no Redis/worker)
-
-Run tasks inline in the API process for quick local development:
-
-```bash
-uvicorn app.main:app --port 8000
-# or explicitly
-CELERY_TASK_ALWAYS_EAGER=1 uvicorn app.main:app --port 8000
-```
-
 ## Test Endpoints
 
 Replace `<USER_ID>` with your UUID (for local testing a placeholder works): `11111111-1111-1111-1111-111111111111`.

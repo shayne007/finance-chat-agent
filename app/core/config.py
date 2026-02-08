@@ -17,6 +17,7 @@ class Settings:
     CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
     CELERY_TASK_ALWAYS_EAGER: bool = os.getenv("CELERY_TASK_ALWAYS_EAGER", "1") == "1"
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_API_BASE_URL: str = os.getenv("OPENAI_API_BASE_URL", "")
     REDIS_CHECKPOINT_URL: str = os.getenv("REDIS_CHECKPOINT_URL", "")
     JIRA_DOMAIN: str = os.getenv("JIRA_DOMAIN", "")
     JIRA_EMAIL: str = os.getenv("JIRA_EMAIL", "")
@@ -78,6 +79,66 @@ class GitHubSettings(BaseModel):
             return int(v)
         except (ValueError, TypeError):
             raise ValueError(f"Must be a valid integer, got: {v}")
+
+
+class RepositoryServiceSettings(BaseModel):
+    """Settings for Repository Service integration.
+
+    This class loads configuration for the codebase-to-knowledge-docs functionality.
+    """
+
+    # Required fields
+    enabled: bool = Field(default=False, description="Enable repository documentation generation")
+
+    # Optional fields with defaults
+    output_dir: str = Field(default="./codebase-to-knowledge-docs", description="Output directory for generated documentation")
+    max_files: int = Field(default=100, description="Maximum number of code files to analyze")
+    default_branch: str = Field(default="main", description="Default branch to clone")
+    enable_diagrams: bool = Field(default=True, description="Enable diagram generation")
+    max_repo_size_mb: int = Field(default=100, description="Maximum repository size in MB to process")
+    supported_languages: list[str] = Field(
+        default=["python", "java", "sql", "javascript", "typescript", "go", "rust", "cpp", "c"],
+        description="List of supported programming languages"
+    )
+
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def parse_enabled(cls, v: Union[str, bool, None]) -> bool:
+        """Parse enabled field from string to boolean."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes", "on")
+        return bool(v) if v is not None else False
+
+    @field_validator("output_dir", mode="before")
+    @classmethod
+    def parse_output_dir(cls, v: Union[str, None]) -> str:
+        """Parse output directory."""
+        if isinstance(v, str):
+            return v
+        return "./codebase-to-knowledge-docs"
+
+    @field_validator("max_files", "max_repo_size_mb", mode="before")
+    @classmethod
+    def parse_int(cls, v: Union[str, int, None]) -> int:
+        """Parse integer fields from string to int."""
+        if isinstance(v, int):
+            return v
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            raise ValueError(f"Must be a valid integer, got: {v}")
+
+    @field_validator("supported_languages", mode="before")
+    @classmethod
+    def parse_languages(cls, v: Union[str, list[str], None]) -> list[str]:
+        """Parse supported languages from string or list."""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return [lang.strip() for lang in v.split(",")]
+        return ["python", "java", "sql", "javascript", "typescript", "go", "rust", "cpp", "c"]
 
 
 settings = Settings()
@@ -150,105 +211,4 @@ class MCPSettings(BaseModel):
     github_max_tools: int = Field(default=50, alias="MAX_TOOLS")
 
 
-class RepositoryServiceSettings(BaseModel):
-    """Settings for Repository Service integration.
-
-    This class loads configuration for the codebase-to-knowledge-docs functionality.
-    """
-
-    # Required fields
-    enabled: bool = Field(default=False, description="Enable repository documentation generation")
-
-    # Optional fields with defaults
-    output_dir: str = Field(default="./codebase-to-knowledge-docs", description="Output directory for generated documentation")
-    max_files: int = Field(default=100, description="Maximum number of code files to analyze")
-    default_branch: str = Field(default="main", description="Default branch to clone")
-    enable_diagrams: bool = Field(default=True, description="Enable diagram generation")
-    max_repo_size_mb: int = Field(default=100, description="Maximum repository size in MB to process")
-    supported_languages: list[str] = Field(
-        default=["python", "java", "sql", "javascript", "typescript", "go", "rust", "cpp", "c"],
-        description="List of supported programming languages"
-    )
-
-    @field_validator("enabled", mode="before")
-    @classmethod
-    def parse_enabled(cls, v: Union[str, bool, None]) -> bool:
-        """Parse enabled field from string to boolean."""
-        if isinstance(v, bool):
-            return v
-        if isinstance(v, str):
-            return v.lower() in ("true", "1", "yes", "on")
-        return bool(v) if v is not None else False
-
-    @field_validator("output_dir", mode="before")
-    @classmethod
-    def parse_output_dir(cls, v: Union[str, None]) -> str:
-        """Parse output directory."""
-        if isinstance(v, str):
-            return v
-        return "./codebase-to-knowledge-docs"
-
-    @field_validator("max_files", "max_repo_size_mb", mode="before")
-    @classmethod
-    def parse_int(cls, v: Union[str, int, None]) -> int:
-        """Parse integer fields from string to int."""
-        if isinstance(v, int):
-            return v
-        try:
-            return int(v)
-        except (ValueError, TypeError):
-            raise ValueError(f"Must be a valid integer, got: {v}")
-
-    @field_validator("supported_languages", mode="before")
-    @classmethod
-    def parse_languages(cls, v: Union[str, list[str], None]) -> list[str]:
-        """Parse supported languages from string or list."""
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            # Split comma-separated string
-            return [lang.strip() for lang in v.split(",")]
-        return ["python", "java", "sql", "javascript", "typescript", "go", "rust", "cpp", "c"]
-
-    @field_validator("github_server_enabled", mode="before")
-    @classmethod
-    def parse_enabled(cls, v: Union[str, bool, None]) -> bool:
-        """Parse enabled field from string to boolean."""
-        if isinstance(v, bool):
-            return v
-        if isinstance(v, str):
-            return v.lower() in ("true", "1", "yes", "on")
-        return bool(v) if v is not None else False
-
-    @field_validator("github_server_port", mode="before")
-    @classmethod
-    def parse_port(cls, v: Union[str, int, None]) -> int:
-        """Parse port field from string to int with validation."""
-        if isinstance(v, int):
-            port = v
-        elif isinstance(v, str):
-            try:
-                port = int(v)
-            except ValueError:
-                raise ValueError(f"Must be a valid integer, got: {v}")
-        else:
-            port = 8081
-
-        if port < 1 or port > 65535:
-            raise ValueError(f"Port must be between 1 and 65535, got: {port}")
-        return port
-
-    @field_validator("github_max_tools", mode="before")
-    @classmethod
-    def parse_max_tools(cls, v: Union[str, int, None]) -> int:
-        """Parse max_tools field from string to int."""
-        if isinstance(v, int):
-            return v
-        try:
-            return int(v)
-        except (ValueError, TypeError):
-            raise ValueError(f"Must be a valid integer, got: {v}")
-
-
 mcp_settings = MCPSettings()
-

@@ -917,7 +917,7 @@
 - [ ] All unit tests pass (run `pytest tests/`)
 - [ ] All integration tests pass (run `pytest tests/integration/`)
 - [ ] Test coverage > 95% (run `pytest --cov=app`)
-- [ ] Code passes linter (run `ruff check` or `black --check`)
+- [ ] Code passes linter (run `pylint app/`)
 - [ ] Code passes type checker `mypy strict` (run `mypy app/`)
 - [ ] All features follow TDD cycle (Red-Green-Refactor)
 - [ ] All tests use parameterized testing where applicable
