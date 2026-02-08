@@ -16,8 +16,6 @@ The Finance Chat Agent is a backend service that leverages GPT-4 to provide inte
 graph TB
     subgraph "External Systems"
         OPENAI[OpenAI GPT-4]
-        GITHUB_API[GitHub API]
-        JIRA_API[Jira API]
     end
     
     subgraph "API Layer"
@@ -28,9 +26,6 @@ graph TB
     subgraph "Finance Agent Router"
         ROUTER[Intent Classifier]
         CHAT[Chat Agent]
-        JIRA[Jira Agent]
-        GITHUB[GitHub Agent]
-        RAG[RAG Agent]
     end
     
     subgraph "Data Layer"
@@ -39,14 +34,8 @@ graph TB
     
     API --> ROUTER
     ROUTER -->|chat| CHAT
-    ROUTER -->|jira| JIRA
-    ROUTER -->|github| GITHUB
-    ROUTER -->|rag| RAG
     
     CHAT --> OPENAI
-    JIRA --> JIRA_API
-    GITHUB --> GITHUB_API
-    RAG --> MEMORY
 ```
 
 ## 3. Core Components
@@ -111,8 +100,6 @@ The `FinanceAgent` acts as a central router that classifies user intent and disp
 # app/agent/finance_agent.py
 from typing import Optional, List, Dict
 from app.agents.chat_agent import ChatAgent
-from app.agents.jira_agent import JiraAgent
-from app.agents.github_agent import GitHubAgent
 
 class FinanceAgent:
     """
@@ -122,41 +109,13 @@ class FinanceAgent:
     def __init__(self):
         # Initialize sub-agents
         self.chat_agent = ChatAgent()
-        self.jira_agent = JiraAgent()
-        self.github_agent = GitHubAgent()
-        self.rag_agent = None  # Placeholder for RAG
         
-    def _detect_agent_type(self, message: str) -> str:
-        """
-        Classify user intent to determine the appropriate agent.
-        """
-        message_lower = message.lower()
-        
-        # Keyword-based routing (can be upgraded to LLM-based)
-        if any(k in message_lower for k in ["github", "pr", "repo"]):
-            return "github"
-        elif any(k in message_lower for k in ["jira", "ticket", "sprint"]):
-            return "jira"
-        elif any(k in message_lower for k in ["search", "document"]):
-            return "rag"
-        
-        return "chat"
-
     async def run(self, message: str, history: List[Dict], thread_id: Optional[str] = None) -> str:
         """
-        Process the message by routing to the correct sub-agent.
+        Process the message by delegating to the Chat Agent.
         """
-        agent_type = self._detect_agent_type(message)
-        
-        if agent_type == "github":
-            return await self.github_agent.process_query(message)
-        elif agent_type == "jira":
-            return await self.jira_agent.process_query(message)
-        elif agent_type == "rag":
-             return "RAG functionality not yet implemented"
-        else:
-            # Default to ChatAgent for general conversation
-            return await self.chat_agent.process_query(message)
+        # Default to ChatAgent for general conversation
+        return await self.chat_agent.process_query(message)
 ```
 
 ### 3.3 Chat Agent Design
