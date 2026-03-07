@@ -3,13 +3,30 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Dict, Any, Optional
 from uuid import UUID
+import threading
+from functools import lru_cache
 
 from app.config.agents import AgentConfig, AgentInfo
 from app.agents.skills_agent import SkillsAgent
+from app.utils.api import create_error_response, format_skills_info
+from app.utils.agents import generate_thread_id, create_llm
+from app.core.config import settings
+from app.constants import AgentConfigDefaults
 
 
 router = APIRouter()
 
+# Cache for agent instances to avoid redundant creation
+_agent_cache = {}
+_cache_lock = threading.Lock()
+
+
+def _get_cached_agent() -> SkillsAgent:
+    """Get a cached agent instance or create a new one."""
+    with _cache_lock:
+        if "skills_agent" not in _agent_cache:
+            _agent_cache["skills_agent"] = AgentConfig.create_skills_only_agent()
+        return _agent_cache["skills_agent"]
 
 @router.get("/info")
 async def get_skills_info() -> Dict[str, Any]:
@@ -18,22 +35,22 @@ async def get_skills_info() -> Dict[str, Any]:
     Returns:
         Dictionary with skills information and agent capabilities
     """
-    # Initialize skills
-    skills_manager = AgentConfig.create_finance_agent(enable_skills=True).skills_manager
-
-    # Get agent info
+    # Use cached agent to avoid redundant creation
     finance_agent = AgentConfig.create_finance_agent(enable_skills=True)
+    skills_manager = finance_agent.skills_manager
     finance_info = AgentConfig.get_agent_info(finance_agent)
 
-    skills_info = []
-    for skill in skills_manager.skills:
-        skills_info.append({
+    # Use list comprehension for better performance
+    skills_info = format_skills_info([
+        {
             "name": skill.name,
             "description": skill.description,
             "category": skill.category,
             "token_budget": skill.token_budget,
-            "tools_available": len(skill.tools) if skill.tools else 0
-        })
+            "tools": skill.tools
+        }
+        for skill in skills_manager.skills
+    ])
 
     return {
         "skills_count": len(skills_manager.skills),
@@ -69,14 +86,19 @@ async def analyze_code_with_skills(
         Analysis result with skill usage information
     """
     try:
-        # Create skills agent
-        skills_agent = AgentConfig.create_skills_only_agent(
-            model_name=model,
-            temperature=temperature
-        )
+        # Use cached agent with updated config
+        skills_agent = _get_cached_agent()
+        # Update model if different
+        if skills_agent.model_name != model:
+            skills_agent.model_name = model
+            skills_agent.llm = create_llm(
+                model_name=model,
+                temperature=temperature,
+                api_key=settings.OPENAI_API_KEY
+            )
 
         # Get thread ID from request or create new one
-        thread_id = request.get("thread_id") or f"skills-{UUID().hex}"
+        thread_id = request.get("thread_id") or generate_thread_id("skills")
 
         # Prepare input
         input_data = {
@@ -118,10 +140,15 @@ async def generate_documentation_with_skills(
         Generated documentation with skill usage info
     """
     try:
-        # Create skills agent
-        skills_agent = AgentConfig.create_skills_only_agent(
-            model_name=model
-        )
+        # Use cached agent
+        skills_agent = _get_cached_agent()
+        if skills_agent.model_name != model:
+            skills_agent.model_name = model
+            skills_agent.llm = create_llm(
+                model_name=model,
+                temperature=AgentConfigDefaults.DEFAULT_TEMPERATURE,
+                api_key=settings.OPENAI_API_KEY
+            )
 
         # Prepare input
         input_data = {
@@ -141,7 +168,7 @@ Additional context:
         # Generate documentation
         result = await skills_agent.invoke(
             input_data,
-            thread_id=f"doc-gen-{UUID().hex}"
+            thread_id=generate_thread_id("doc-gen")
         )
 
         # Add metadata
@@ -175,10 +202,15 @@ async def create_architecture_diagram(
         Generated diagram with skill usage info
     """
     try:
-        # Create skills agent
-        skills_agent = AgentConfig.create_skills_only_agent(
-            model_name=model
-        )
+        # Use cached agent
+        skills_agent = _get_cached_agent()
+        if skills_agent.model_name != model:
+            skills_agent.model_name = model
+            skills_agent.llm = create_llm(
+                model_name=model,
+                temperature=AgentConfigDefaults.DEFAULT_TEMPERATURE,
+                api_key=settings.OPENAI_API_KEY
+            )
 
         # Prepare input
         input_data = {
@@ -198,7 +230,7 @@ Additional details:
         # Generate diagram
         result = await skills_agent.invoke(
             input_data,
-            thread_id=f"diagram-{UUID().hex}"
+            thread_id=generate_thread_id("diagram")
         )
 
         # Add metadata

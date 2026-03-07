@@ -19,6 +19,9 @@ from app.skills.middleware import SkillMiddleware
 from app.skills.registry import SKILLS_REGISTRY, load_skill
 from app.skills.manager import SkillManager
 from app.core.config import settings
+from app.utils.agents import create_llm, create_agent_response
+from app.constants import AgentConfigDefaults, SkillMessages
+from app.utils.errors import handle_agent_error
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +31,9 @@ class SkillsAgent:
 
     def __init__(
         self,
-        model_name: str = "gpt-4o-mini",
-        temperature: float = 0.7,
+        model_name: str = AgentConfigDefaults.DEFAULT_MODEL,
+        temperature: float = AgentConfigDefaults.DEFAULT_TEMPERATURE,
         skills: Optional[List[Any]] = None,
-        skills_manager: Optional[SkillManager] = None,
     ):
         """Initialize the Skills Agent.
 
@@ -46,12 +48,11 @@ class SkillsAgent:
 
         # Initialize skills
         self.skills = skills or SKILLS_REGISTRY
-        self.skills_manager = skills_manager or SkillManager(self.skills)
+        self.skills_manager = SkillManager(self.skills)
 
         # Initialize model
-        from langchain_openai import ChatOpenAI
-        self.llm = ChatOpenAI(
-            model=self.model_name,
+        self.llm = create_llm(
+            model_name=self.model_name,
             temperature=self.temperature,
             api_key=settings.OPENAI_API_KEY
         )
@@ -118,9 +119,18 @@ instructions and best practices that ensure quality results.
             max_iterations=20
         )
 
-        # Apply skill middleware wrapper
-        return SkillMiddlewareWrapper(executor, self.skills)
+        # Create executor
+        executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=True,
+            checkpointer=self.checkpointer,
+            max_iterations=AgentConfigDefaults.MAX_ITERATIONS
+        )
 
+        return executor
+
+    @handle_agent_error("agent invocation")
     async def invoke(
         self,
         input_data: Dict[str, Any],
@@ -155,54 +165,15 @@ instructions and best practices that ensure quality results.
 
         # Look for skill loading indicators in the output
         output = result.get("output", "")
-        if "Loaded Skill:" in output:
+        if SkillMessages.LOADED_SKILL_PATTERN in output:
             # Extract skill names from output
             import re
-            pattern = r"Loaded Skill: (\w+)"
-            matches = re.findall(pattern, output)
+            matches = re.findall(SkillMessages.LOADED_SKILL_PATTERN, output)
             skills_used.extend(matches)
 
         return skills_used
 
 
-class SkillMiddlewareWrapper:
-    """Wrapper that applies SkillMiddleware to an AgentExecutor."""
-
-    def __init__(self, agent_executor: AgentExecutor, skills: List[Any]):
-        self.agent_executor = agent_executor
-        self.skills = skills
-        self.skills_manager = SkillManager(skills)
-
-    async def ainvoke(
-        self,
-        input_data: Dict[str, Any],
-        config: Optional[RunnableConfig] = None
-    ) -> Dict[str, Any]:
-        """Invoke with skill middleware applied."""
-        # Get the original input
-        original_input = input_data.get("input", "")
-
-        # Inject skills awareness into the input
-        enhanced_input = self._enhance_input_with_skills(original_input)
-        input_data["input"] = enhanced_input
-
-        # Invoke the agent
-        result = await self.agent_executor.ainvoke(input_data, config)
-
-        return result
-
-    def _enhance_input_with_skills(self, input_text: str) -> str:
-        """Enhance the input text with skills awareness."""
-        skills_addendum = f"""
-
-## Available Skills Reminder
-
-{self.skills_manager.skills_prompt}
-
-Remember to use load_skill() to get detailed instructions before processing complex tasks.
-"""
-
-        return input_text + skills_addendum
 
 
 # Example usage and standalone execution

@@ -14,6 +14,7 @@ from app.agents.skills_agent import SkillsAgent
 from app.skills.manager import SkillManager
 from app.skills.registry import SKILLS_REGISTRY
 from app.core.config import settings
+from app.constants import AgentConfigDefaults
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class AgentConfig:
         if enable_skills and not skills_agent:
             skills_agent = SkillsAgent(
                 model_name=settings.OPENAI_MODEL,
-                temperature=0.7,
+                temperature=AgentConfigDefaults.DEFAULT_TEMPERATURE,
                 skills=SKILLS_REGISTRY
             )
 
@@ -64,7 +65,7 @@ class AgentConfig:
     @staticmethod
     def create_skills_only_agent(
         model_name: str = None,
-        temperature: float = 0.7,
+        temperature: float = AgentConfigDefaults.DEFAULT_TEMPERATURE,
         skills: Optional[list] = None,
     ) -> SkillsAgent:
         """Create a Skills-only agent.
