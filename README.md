@@ -109,8 +109,62 @@ When completed (includes the LLM answer):
 curl -sS 'http://127.0.0.1:8000/health'
 ```
 
+## Skills-based Agent with SkillMiddleware
+
+The finance chat agent now supports **SkillMiddleware** - a progressive disclosure pattern that reduces token consumption by 60-80% while maintaining full capabilities.
+
+### Features
+
+- **Progressive Disclosure**: Only load skill metadata upfront, load full content on-demand
+- **Token Efficiency**: 60-80% token reduction through on-demand skill loading
+- **Team Autonomy**: Different teams can maintain specialized skills independently
+- **Scalable**: Add dozens of skills without overwhelming context
+
+### Skills API Endpoints
+
+```bash
+# Get available skills information
+curl -sS 'http://127.0.0.1:8000/api/v1/skills/info'
+
+# Analyze code with skills
+curl -X POST 'http://127.0.0.1:8000/api/v1/skills/analyze' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "input": "Analyze this Python code and identify classes and functions",
+    "code": "class Calculator:\n    def add(self, a, b):\n        return a + b"
+  }'
+
+# Generate documentation with skills
+curl -X POST 'http://127.0.0.1:8000/api/v1/skills/generate-documentation' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "repo_path": "./my-project",
+    "format": "markdown",
+    "requirements": "Generate comprehensive documentation with API endpoints"
+  }'
+
+# Create architecture diagrams
+curl -X POST 'http://127.0.0.1:8000/api/v1/skills/create-architecture-diagram' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "description": "Microservices architecture with API Gateway",
+    "diagram_type": "architecture"
+  }'
+```
+
+### Running Skills Examples
+
+```bash
+# Run the skills agent example
+python examples/skills_agent_example.py
+
+# Run tests
+python -m pytest tests/test_skills_middleware.py -v
+```
+
 ## Notes
 
 - In async mode, ensure Redis is reachable and the Celery worker is running.
 - The UI should implement the polling loop client-side, calling the status endpoint until `status` is `completed`.
 - Conversation messages can be fetched via `GET /api/v1/messages/{conversation_id}` if needed for full history.
+- Skills are loaded on-demand and cached for better performance. Check the response metadata to see which skills were used.

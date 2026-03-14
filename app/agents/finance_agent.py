@@ -13,6 +13,9 @@ from redis import Redis
 from app.core.config import settings
 from app.agents.jira_agent import JiraAgent
 from app.agents.github_agent import GitHubAgent
+from app.agents.skills_agent import SkillsAgent
+from app.skills.manager import SkillManager
+from app.skills.registry import SKILLS_REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,7 @@ class FinanceAgent:
         jira_agent: Optional[JiraAgent] = None,
         rag_agent: Optional = None,
         github_agent: Optional[GitHubAgent] = None,
+        skills_agent: Optional[SkillsAgent] = None,
     ):
         """Initialize the Finance Agent.
 
@@ -44,17 +48,39 @@ class FinanceAgent:
             jira_agent: Optional Jira Agent instance.
             rag_agent: Optional RAG Agent instance.
             github_agent: Optional GitHub Agent instance.
+            skills_agent: Optional Skills Agent instance.
         """
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        self.llm = ChatOpenAI(model=self.model_name, temperature=0.7) if self.openai_key else None
+
+        # Initialize LLM
+        self.llm = ChatOpenAI(
+            model=self.model_name,
+            temperature=0.7,
+            api_key=self.openai_key
+        ) if self.openai_key else None
+
+        # Initialize sub-agents
         self.jira = jira_agent if jira_agent else JiraAgent()
         self.github_agent = github_agent
         self.rag_agent = rag_agent
         self.chat_agent = chat_agent if chat_agent else ChatAgent()
         self.app = None
 
+        # Initialize skills agent if not provided
+        self.skills_agent = skills_agent
+        if not self.skills_agent and self.llm:
+            self.skills_agent = SkillsAgent(
+                model_name=self.model_name,
+                temperature=0.7,
+                skills=SKILLS_REGISTRY
+            )
+
+        # Initialize skills manager for skill-aware responses
+        self.skills_manager = SkillManager(SKILLS_REGISTRY)
+
         logger.info(f"FinanceAgent initialized with GitHub agent: {github_agent is not None}")
+        logger.info(f"FinanceAgent initialized with skills: {self.skills_agent is not None}")
 
     def _detect_agent_type(self, message: str) -> str:
         """Detect which agent should handle the message.
@@ -118,6 +144,20 @@ class FinanceAgent:
                 return self.jira.create_ticket(message)
         elif agent_type == "rag" and self.rag_agent:
             return f"Searching for information about: {message}"
+        elif self.skills_agent:
+            # Use skills agent for queries that don't match specific categories
+            # or when complex skills are needed
+            result = await self.skills_agent.invoke({
+                "input": message,
+                "history": history
+            }, thread_id=thread_id)
+
+            # Add skills awareness to the response
+            if result["metadata"]["skills_used"]:
+                skills_info = f"\n\n*Skills used: {', '.join(result['metadata']['skills_used'])}*"
+                return result["content"] + skills_info
+
+            return result["content"]
         elif self.llm:
             # Fallback to chat for queries without specific routing
             return await self.chat_agent.process_query(message)

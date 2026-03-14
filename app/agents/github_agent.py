@@ -9,8 +9,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.prompts import ChatPromptTemplate
+
 from app.mcp.github_server import GitHubMCPServer
 from app.models.github import GitHubIntent
+from app.skills.manager import SkillManager
+from app.skills.registry import SKILLS_REGISTRY
+from app.skills.tools import (
+    parse_python_file, 
+    parse_java_file,
+    extract_sql_schema,
+    identify_design_patterns, 
+    clone_repository
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +50,7 @@ Categories:
 - pr: Operations related to pull requests (list, create, merge, close)
 - repo: Repository-wide operations (status, branches, files)
 - search: Code or content search operations
+- analysis: Code analysis and documentation operations
 - unknown: Anything else
 
 Actions for issues:
@@ -60,6 +73,9 @@ Actions for repo:
 Actions for search:
 - code: Search code in the repository
 
+Actions for analysis:
+- analyze: Analyze codebase structure, patterns, or generate documentation
+
 Extract entities from the query:
 - repo: Repository name (e.g., "owner/repo")
 - issue_number: Issue number (e.g., "#123")
@@ -70,8 +86,8 @@ Extract entities from the query:
 
 Return a JSON object with this structure:
 {
-    "category": "issue|pr|repo|search|unknown",
-    "action": "list|create|update|close|merge|status|branches|files|code",
+    "category": "issue|pr|repo|search|analysis|unknown",
+    "action": "list|create|update|close|merge|status|branches|files|code|analyze",
     "confidence": 0.0 to 1.0,
     "entities": {
         "repo": "extracted repo or null",
@@ -106,6 +122,7 @@ If you're unsure about the category or action, set confidence to a lower value.
         self.github_client = github_client
         self.default_repo = default_repo
         self._intent_parser = GitHubIntent
+        self.skill_manager = SkillManager(SKILLS_REGISTRY)
 
         logger.info("GitHubAgent initialized")
 
@@ -201,6 +218,9 @@ If you're unsure about the category or action, set confidence to a lower value.
         elif any(word in response_lower for word in ["search", "find", "look"]):
             category = "search"
             action = "code"
+        elif any(word in response_lower for word in ["analyze", "analysis", "parse", "scan"]):
+            category = "analysis"
+            action = "analyze"
 
         return {
             "category": category,
@@ -226,6 +246,10 @@ If you're unsure about the category or action, set confidence to a lower value.
 
             # Extract repository from entities or use default
             repo = intent.entities.get("repo") or self.default_repo
+
+            # Handle analysis intent separately
+            if intent.category == "analysis":
+                return await self._process_analysis_query(query, repo)
 
             if not repo:
                 return self._error_response(
@@ -259,6 +283,56 @@ If you're unsure about the category or action, set confidence to a lower value.
         except Exception as e:
             logger.exception(f"Query processing failed: {e}")
             return self._error_response(f"An error occurred while processing your query: {e}")
+
+    async def _process_analysis_query(self, query: str, repo: str | None) -> dict[str, Any]:
+        """Process a code analysis query using the skills-based agent.
+
+        Args:
+            query: The user's query.
+            repo: The repository to analyze (optional).
+
+        Returns:
+            AgentResponse dictionary.
+        """
+        tools = self.skill_manager.tools + [
+            parse_python_file, 
+            parse_java_file,
+            extract_sql_schema,
+            identify_design_patterns, 
+            clone_repository
+        ]
+        
+        # Build prompt with skill metadata
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a specialized code analysis agent. "
+                      "If the user asks to analyze a repository, first clone it using `clone_repository`. "
+                      "Then use the `load_skill` tool to get instructions on how to analyze the code. "
+                      "Follow the skill's instructions to use tools like `parse_python_file`. "
+                      "If a repository is provided in the context, use it: {repo} "
+                      + self.skill_manager.get_system_prompt_addendum()),
+            ("human", "{input}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ])
+        
+        agent = create_tool_calling_agent(self.llm, tools, prompt)
+        agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+        
+        # Inject repo context if available
+        input_data = {"input": query, "repo": repo if repo else "No repository specified"}
+        
+        try:
+            result = await agent_executor.ainvoke(input_data)
+            return {
+                "success": True,
+                "content": result["output"],
+                "metadata": {
+                    "intent_category": "analysis",
+                    "repo": repo
+                }
+            }
+        except Exception as e:
+            logger.exception(f"Analysis failed: {e}")
+            return self._error_response(f"Analysis failed: {e}")
 
     def _route_to_tool(
         self,
